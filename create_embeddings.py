@@ -27,7 +27,7 @@ from sklearn.preprocessing import normalize
 # ──────────────────────────────────────────────────────────────────────
 # 1.  CONFIGURATION
 # ──────────────────────────────────────────────────────────────────────
-INPUT_CSV = ".df_foodcom_recipes_filtered.csv"
+INPUT_CSV = "df_foodcom_recipes_filtered.csv"
 OUTPUT_CSV = "recipe_embeddings.csv"
 EMBEDDING_DIM = 64  # Number of embedding dimensions (tune as needed)
 
