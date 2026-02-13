@@ -1,0 +1,311 @@
+anemia	BENEFITS_FROM	folate
+anemia	BENEFITS_FROM	iron
+anemia	BENEFITS_FROM	vitamin_b12
+depression	BENEFITS_FROM	folate
+depression	BENEFITS_FROM	omega3
+depression	BENEFITS_FROM	vitamin_b12
+depression	BENEFITS_FROM	vitamin_d
+hypertension	BENEFITS_FROM	magnesium
+hypertension	BENEFITS_FROM	potassium
+inflammation	BENEFITS_FROM	omega3
+inflammation	BENEFITS_FROM	vitamin_c
+inflammation	BENEFITS_FROM	vitamin_e
+osteoporosis	BENEFITS_FROM	calcium
+osteoporosis	BENEFITS_FROM	vitamin_d
+osteoporosis	BENEFITS_FROM	vitamin_k
+type2_diabetes	BENEFITS_FROM	chromium
+type2_diabetes	BENEFITS_FROM	fiber
+type2_diabetes	BENEFITS_FROM	magnesium
+Avocado Toast	CONTAINS_INGREDIENT	avocado
+Avocado Toast	CONTAINS_INGREDIENT	lemon juice
+Avocado Toast	CONTAINS_INGREDIENT	olive oil
+Avocado Toast	CONTAINS_INGREDIENT	red pepper flakes
+Avocado Toast	CONTAINS_INGREDIENT	salt
+Avocado Toast	CONTAINS_INGREDIENT	sourdough bread
+Beef Tacos	CONTAINS_INGREDIENT	cheddar cheese
+Beef Tacos	CONTAINS_INGREDIENT	chili powder
+Beef Tacos	CONTAINS_INGREDIENT	cilantro
+Beef Tacos	CONTAINS_INGREDIENT	corn tortilla
+Beef Tacos	CONTAINS_INGREDIENT	cumin
+Beef Tacos	CONTAINS_INGREDIENT	ground beef
+Beef Tacos	CONTAINS_INGREDIENT	lime juice
+Beef Tacos	CONTAINS_INGREDIENT	onion
+Beef Tacos	CONTAINS_INGREDIENT	tomato
+Butter Chicken	CONTAINS_INGREDIENT	butter
+Butter Chicken	CONTAINS_INGREDIENT	chicken thigh
+Butter Chicken	CONTAINS_INGREDIENT	cumin
+Butter Chicken	CONTAINS_INGREDIENT	garam masala
+Butter Chicken	CONTAINS_INGREDIENT	garlic
+Butter Chicken	CONTAINS_INGREDIENT	ginger
+Butter Chicken	CONTAINS_INGREDIENT	heavy cream
+Butter Chicken	CONTAINS_INGREDIENT	onion
+Butter Chicken	CONTAINS_INGREDIENT	tomato
+Butter Chicken	CONTAINS_INGREDIENT	turmeric
+Caesar Salad	CONTAINS_INGREDIENT	anchovy
+Caesar Salad	CONTAINS_INGREDIENT	croutons
+Caesar Salad	CONTAINS_INGREDIENT	egg yolk
+Caesar Salad	CONTAINS_INGREDIENT	garlic
+Caesar Salad	CONTAINS_INGREDIENT	lemon juice
+Caesar Salad	CONTAINS_INGREDIENT	olive oil
+Caesar Salad	CONTAINS_INGREDIENT	parmesan cheese
+Caesar Salad	CONTAINS_INGREDIENT	romaine lettuce
+Chicken Biryani	CONTAINS_INGREDIENT	basmati rice
+Chicken Biryani	CONTAINS_INGREDIENT	chicken breast
+Chicken Biryani	CONTAINS_INGREDIENT	cumin
+Chicken Biryani	CONTAINS_INGREDIENT	ghee
+Chicken Biryani	CONTAINS_INGREDIENT	onion
+Chicken Biryani	CONTAINS_INGREDIENT	saffron
+Chicken Biryani	CONTAINS_INGREDIENT	turmeric
+Chicken Biryani	CONTAINS_INGREDIENT	yogurt
+Greek Salad	CONTAINS_INGREDIENT	cucumber
+Greek Salad	CONTAINS_INGREDIENT	feta cheese
+Greek Salad	CONTAINS_INGREDIENT	kalamata olives
+Greek Salad	CONTAINS_INGREDIENT	lemon juice
+Greek Salad	CONTAINS_INGREDIENT	olive oil
+Greek Salad	CONTAINS_INGREDIENT	oregano
+Greek Salad	CONTAINS_INGREDIENT	red onion
+Greek Salad	CONTAINS_INGREDIENT	tomato
+Pad Thai	CONTAINS_INGREDIENT	bean sprouts
+Pad Thai	CONTAINS_INGREDIENT	brown sugar
+Pad Thai	CONTAINS_INGREDIENT	egg
+Pad Thai	CONTAINS_INGREDIENT	fish sauce
+Pad Thai	CONTAINS_INGREDIENT	garlic
+Pad Thai	CONTAINS_INGREDIENT	green onion
+Pad Thai	CONTAINS_INGREDIENT	lime juice
+Pad Thai	CONTAINS_INGREDIENT	peanuts
+Pad Thai	CONTAINS_INGREDIENT	rice noodles
+Pad Thai	CONTAINS_INGREDIENT	shrimp
+Salmon Teriyaki	CONTAINS_INGREDIENT	brown sugar
+Salmon Teriyaki	CONTAINS_INGREDIENT	garlic
+Salmon Teriyaki	CONTAINS_INGREDIENT	ginger
+Salmon Teriyaki	CONTAINS_INGREDIENT	green onion
+Salmon Teriyaki	CONTAINS_INGREDIENT	mirin
+Salmon Teriyaki	CONTAINS_INGREDIENT	salmon fillet
+Salmon Teriyaki	CONTAINS_INGREDIENT	sesame oil
+Salmon Teriyaki	CONTAINS_INGREDIENT	soy sauce
+Spaghetti Carbonara	CONTAINS_INGREDIENT	black pepper
+Spaghetti Carbonara	CONTAINS_INGREDIENT	egg yolk
+Spaghetti Carbonara	CONTAINS_INGREDIENT	garlic
+Spaghetti Carbonara	CONTAINS_INGREDIENT	pancetta
+Spaghetti Carbonara	CONTAINS_INGREDIENT	parmesan cheese
+Spaghetti Carbonara	CONTAINS_INGREDIENT	spaghetti
+Spinach Dal	CONTAINS_INGREDIENT	cumin
+Spinach Dal	CONTAINS_INGREDIENT	garlic
+Spinach Dal	CONTAINS_INGREDIENT	ghee
+Spinach Dal	CONTAINS_INGREDIENT	onion
+Spinach Dal	CONTAINS_INGREDIENT	red lentils
+Spinach Dal	CONTAINS_INGREDIENT	spinach
+Spinach Dal	CONTAINS_INGREDIENT	tomato
+Spinach Dal	CONTAINS_INGREDIENT	turmeric
+Avocado Toast	HAS_HEALTH_FUNCTION	anti-inflammatory
+Avocado Toast	HAS_HEALTH_FUNCTION	heart-healthy
+Avocado Toast	HAS_HEALTH_FUNCTION	high-fiber
+Beef Tacos	HAS_HEALTH_FUNCTION	energy-boosting
+Beef Tacos	HAS_HEALTH_FUNCTION	high-protein
+Butter Chicken	HAS_HEALTH_FUNCTION	anti-inflammatory
+Butter Chicken	HAS_HEALTH_FUNCTION	high-protein
+Caesar Salad	HAS_HEALTH_FUNCTION	bone-health
+Caesar Salad	HAS_HEALTH_FUNCTION	low-calorie
+Chicken Biryani	HAS_HEALTH_FUNCTION	anti-inflammatory
+Chicken Biryani	HAS_HEALTH_FUNCTION	high-protein
+Greek Salad	HAS_HEALTH_FUNCTION	anti-inflammatory
+Greek Salad	HAS_HEALTH_FUNCTION	heart-healthy
+Greek Salad	HAS_HEALTH_FUNCTION	low-calorie
+Pad Thai	HAS_HEALTH_FUNCTION	energy-boosting
+Pad Thai	HAS_HEALTH_FUNCTION	high-protein
+Salmon Teriyaki	HAS_HEALTH_FUNCTION	anti-inflammatory
+Salmon Teriyaki	HAS_HEALTH_FUNCTION	brain-health
+Salmon Teriyaki	HAS_HEALTH_FUNCTION	heart-healthy
+Spaghetti Carbonara	HAS_HEALTH_FUNCTION	energy-boosting
+Spaghetti Carbonara	HAS_HEALTH_FUNCTION	high-protein
+Spinach Dal	HAS_HEALTH_FUNCTION	anti-inflammatory
+Spinach Dal	HAS_HEALTH_FUNCTION	high-fiber
+Spinach Dal	HAS_HEALTH_FUNCTION	iron-rich
+American	HAS_SUBCATEGORY	Breakfast
+American	HAS_SUBCATEGORY	Salad
+Indian	HAS_SUBCATEGORY	Curry
+Indian	HAS_SUBCATEGORY	Lentils
+Indian	HAS_SUBCATEGORY	Rice Dishes
+Italian	HAS_SUBCATEGORY	Pasta
+Japanese	HAS_SUBCATEGORY	Seafood
+Mediterranean	HAS_SUBCATEGORY	Salad
+Mexican	HAS_SUBCATEGORY	Tacos
+Thai	HAS_SUBCATEGORY	Noodles
+Avocado Toast	HIGH_IN	fiber
+Beef Tacos	HIGH_IN	protein
+Butter Chicken	HIGH_IN	fat
+Butter Chicken	HIGH_IN	protein
+Chicken Biryani	HIGH_IN	protein
+Pad Thai	HIGH_IN	protein
+Salmon Teriyaki	HIGH_IN	protein
+Spaghetti Carbonara	HIGH_IN	protein
+Spinach Dal	HIGH_IN	fiber
+Spinach Dal	HIGH_IN	protein
+Avocado Toast	IN_CATEGORY	American
+Beef Tacos	IN_CATEGORY	Mexican
+Butter Chicken	IN_CATEGORY	Indian
+Caesar Salad	IN_CATEGORY	American
+Chicken Biryani	IN_CATEGORY	Indian
+Greek Salad	IN_CATEGORY	Mediterranean
+Pad Thai	IN_CATEGORY	Thai
+Salmon Teriyaki	IN_CATEGORY	Japanese
+Spaghetti Carbonara	IN_CATEGORY	Italian
+Spinach Dal	IN_CATEGORY	Indian
+Avocado Toast	IN_SUBCATEGORY	Breakfast
+Beef Tacos	IN_SUBCATEGORY	Tacos
+Butter Chicken	IN_SUBCATEGORY	Curry
+Caesar Salad	IN_SUBCATEGORY	Salad
+Chicken Biryani	IN_SUBCATEGORY	Rice Dishes
+Greek Salad	IN_SUBCATEGORY	Salad
+Pad Thai	IN_SUBCATEGORY	Noodles
+Salmon Teriyaki	IN_SUBCATEGORY	Seafood
+Spaghetti Carbonara	IN_SUBCATEGORY	Pasta
+Spinach Dal	IN_SUBCATEGORY	Lentils
+Greek Salad	IS	low-calorie
+Avocado Toast	PROVIDES	folate
+Avocado Toast	PROVIDES	potassium
+Avocado Toast	PROVIDES	vitamin_e
+Beef Tacos	PROVIDES	calcium
+Beef Tacos	PROVIDES	iron
+Beef Tacos	PROVIDES	potassium
+Beef Tacos	PROVIDES	vitamin_b12
+Beef Tacos	PROVIDES	zinc
+Butter Chicken	PROVIDES	iron
+Butter Chicken	PROVIDES	potassium
+Butter Chicken	PROVIDES	vitamin_a
+Butter Chicken	PROVIDES	vitamin_b12
+Butter Chicken	PROVIDES	zinc
+Caesar Salad	PROVIDES	calcium
+Caesar Salad	PROVIDES	folate
+Caesar Salad	PROVIDES	iron
+Caesar Salad	PROVIDES	vitamin_a
+Caesar Salad	PROVIDES	vitamin_c
+Caesar Salad	PROVIDES	vitamin_k
+Chicken Biryani	PROVIDES	iron
+Chicken Biryani	PROVIDES	magnesium
+Chicken Biryani	PROVIDES	potassium
+Chicken Biryani	PROVIDES	zinc
+Greek Salad	PROVIDES	calcium
+Greek Salad	PROVIDES	potassium
+Greek Salad	PROVIDES	vitamin_c
+Greek Salad	PROVIDES	vitamin_k
+Pad Thai	PROVIDES	iron
+Pad Thai	PROVIDES	magnesium
+Pad Thai	PROVIDES	phosphorus
+Pad Thai	PROVIDES	selenium
+Pad Thai	PROVIDES	vitamin_b12
+Pad Thai	PROVIDES	zinc
+Salmon Teriyaki	PROVIDES	omega3
+Salmon Teriyaki	PROVIDES	phosphorus
+Salmon Teriyaki	PROVIDES	potassium
+Salmon Teriyaki	PROVIDES	selenium
+Salmon Teriyaki	PROVIDES	vitamin_b12
+Salmon Teriyaki	PROVIDES	vitamin_d
+Spaghetti Carbonara	PROVIDES	calcium
+Spaghetti Carbonara	PROVIDES	iron
+Spaghetti Carbonara	PROVIDES	phosphorus
+Spaghetti Carbonara	PROVIDES	selenium
+Spaghetti Carbonara	PROVIDES	vitamin_b12
+Spaghetti Carbonara	PROVIDES	zinc
+Spinach Dal	PROVIDES	folate
+Spinach Dal	PROVIDES	iron
+Spinach Dal	PROVIDES	magnesium
+Spinach Dal	PROVIDES	potassium
+Spinach Dal	PROVIDES	vitamin_c
+Spinach Dal	PROVIDES	vitamin_k
+Spinach Dal	PROVIDES	zinc
+hypertension	SHOULD_AVOID	sodium
+arctic char	SUBSTITUTES_FOR	salmon fillet
+asiago cheese	SUBSTITUTES_FOR	parmesan cheese
+avocado oil	SUBSTITUTES_FOR	olive oil
+basmati rice	SUBSTITUTES_FOR	jasmine rice
+basmati rice	SUBSTITUTES_FOR	long grain rice
+brown sugar	SUBSTITUTES_FOR	coconut sugar
+brown sugar	SUBSTITUTES_FOR	honey
+brown sugar	SUBSTITUTES_FOR	maple syrup
+bucatini	SUBSTITUTES_FOR	spaghetti
+butter	SUBSTITUTES_FOR	coconut oil
+butter	SUBSTITUTES_FOR	ghee
+butter	SUBSTITUTES_FOR	margarine
+butter	SUBSTITUTES_FOR	olive oil
+butter lettuce	SUBSTITUTES_FOR	romaine lettuce
+canola oil	SUBSTITUTES_FOR	olive oil
+cashew cream	SUBSTITUTES_FOR	heavy cream
+cheddar cheese	SUBSTITUTES_FOR	colby cheese
+cheddar cheese	SUBSTITUTES_FOR	monterey jack
+chicken breast	SUBSTITUTES_FOR	chicken thigh
+chicken breast	SUBSTITUTES_FOR	turkey breast
+chicken thigh	SUBSTITUTES_FOR	chicken breast
+chicken thigh	SUBSTITUTES_FOR	turkey thigh
+clarified butter	SUBSTITUTES_FOR	ghee
+coconut aminos	SUBSTITUTES_FOR	soy sauce
+coconut cream	SUBSTITUTES_FOR	heavy cream
+coconut oil	SUBSTITUTES_FOR	butter
+coconut oil	SUBSTITUTES_FOR	ghee
+coconut sugar	SUBSTITUTES_FOR	brown sugar
+colby cheese	SUBSTITUTES_FOR	cheddar cheese
+collard greens	SUBSTITUTES_FOR	spinach
+feta cheese	SUBSTITUTES_FOR	goat cheese
+feta cheese	SUBSTITUTES_FOR	queso fresco
+fettuccine	SUBSTITUTES_FOR	spaghetti
+ghee	SUBSTITUTES_FOR	butter
+ghee	SUBSTITUTES_FOR	clarified butter
+ghee	SUBSTITUTES_FOR	coconut oil
+glass noodles	SUBSTITUTES_FOR	rice noodles
+goat cheese	SUBSTITUTES_FOR	feta cheese
+greek yogurt	SUBSTITUTES_FOR	yogurt
+green lentils	SUBSTITUTES_FOR	red lentils
+ground beef	SUBSTITUTES_FOR	ground lamb
+ground beef	SUBSTITUTES_FOR	ground turkey
+ground lamb	SUBSTITUTES_FOR	ground beef
+ground turkey	SUBSTITUTES_FOR	ground beef
+heavy cream	SUBSTITUTES_FOR	cashew cream
+heavy cream	SUBSTITUTES_FOR	coconut cream
+honey	SUBSTITUTES_FOR	brown sugar
+iceberg lettuce	SUBSTITUTES_FOR	romaine lettuce
+jasmine rice	SUBSTITUTES_FOR	basmati rice
+kale	SUBSTITUTES_FOR	spinach
+langoustine	SUBSTITUTES_FOR	shrimp
+linguine	SUBSTITUTES_FOR	spaghetti
+long grain rice	SUBSTITUTES_FOR	basmati rice
+maple syrup	SUBSTITUTES_FOR	brown sugar
+margarine	SUBSTITUTES_FOR	butter
+monterey jack	SUBSTITUTES_FOR	cheddar cheese
+olive oil	SUBSTITUTES_FOR	avocado oil
+olive oil	SUBSTITUTES_FOR	butter
+olive oil	SUBSTITUTES_FOR	canola oil
+olive oil	SUBSTITUTES_FOR	vegetable oil
+parmesan cheese	SUBSTITUTES_FOR	asiago cheese
+parmesan cheese	SUBSTITUTES_FOR	pecorino romano
+pecorino romano	SUBSTITUTES_FOR	parmesan cheese
+prawns	SUBSTITUTES_FOR	shrimp
+queso fresco	SUBSTITUTES_FOR	feta cheese
+red lentils	SUBSTITUTES_FOR	green lentils
+red lentils	SUBSTITUTES_FOR	yellow lentils
+rice noodles	SUBSTITUTES_FOR	glass noodles
+rice noodles	SUBSTITUTES_FOR	vermicelli
+romaine lettuce	SUBSTITUTES_FOR	butter lettuce
+romaine lettuce	SUBSTITUTES_FOR	iceberg lettuce
+salmon fillet	SUBSTITUTES_FOR	arctic char
+salmon fillet	SUBSTITUTES_FOR	trout fillet
+shrimp	SUBSTITUTES_FOR	langoustine
+shrimp	SUBSTITUTES_FOR	prawns
+sour cream	SUBSTITUTES_FOR	yogurt
+soy sauce	SUBSTITUTES_FOR	coconut aminos
+soy sauce	SUBSTITUTES_FOR	tamari
+spaghetti	SUBSTITUTES_FOR	bucatini
+spaghetti	SUBSTITUTES_FOR	fettuccine
+spaghetti	SUBSTITUTES_FOR	linguine
+spinach	SUBSTITUTES_FOR	collard greens
+spinach	SUBSTITUTES_FOR	kale
+spinach	SUBSTITUTES_FOR	swiss chard
+swiss chard	SUBSTITUTES_FOR	spinach
+tamari	SUBSTITUTES_FOR	soy sauce
+trout fillet	SUBSTITUTES_FOR	salmon fillet
+turkey breast	SUBSTITUTES_FOR	chicken breast
+turkey thigh	SUBSTITUTES_FOR	chicken thigh
+vegetable oil	SUBSTITUTES_FOR	olive oil
+vermicelli	SUBSTITUTES_FOR	rice noodles
+yellow lentils	SUBSTITUTES_FOR	red lentils
+yogurt	SUBSTITUTES_FOR	greek yogurt
+yogurt	SUBSTITUTES_FOR	sour cream

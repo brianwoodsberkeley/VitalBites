@@ -1,0 +1,742 @@
+{
+  "recipes": [
+    {
+      "name": "Chicken Biryani",
+      "category": "Indian",
+      "subcategory": "Rice Dishes",
+      "ingredients": [
+        {
+          "name": "basmati rice",
+          "quantity": "2 cups"
+        },
+        {
+          "name": "chicken breast",
+          "quantity": "1 lb"
+        },
+        {
+          "name": "ghee",
+          "quantity": "3 tbsp"
+        },
+        {
+          "name": "onion",
+          "quantity": "2 large"
+        },
+        {
+          "name": "yogurt",
+          "quantity": "1 cup"
+        },
+        {
+          "name": "turmeric",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "cumin",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "saffron",
+          "quantity": "pinch"
+        }
+      ],
+      "health_functions": [
+        "anti-inflammatory",
+        "high-protein"
+      ],
+      "macronutrients": {
+        "calories": 450,
+        "protein_g": 35,
+        "carbs_g": 52,
+        "fat_g": 12,
+        "fiber_g": 3
+      },
+      "micronutrients": {
+        "iron_mg": 3.2,
+        "zinc_mg": 2.8,
+        "vitamin_b12_mcg": 0.9,
+        "vitamin_d_iu": 15,
+        "calcium_mg": 85,
+        "potassium_mg": 420,
+        "magnesium_mg": 55,
+        "folate_mcg": 45
+      }
+    },
+    {
+      "name": "Butter Chicken",
+      "category": "Indian",
+      "subcategory": "Curry",
+      "ingredients": [
+        {
+          "name": "chicken thigh",
+          "quantity": "1.5 lb"
+        },
+        {
+          "name": "butter",
+          "quantity": "4 tbsp"
+        },
+        {
+          "name": "heavy cream",
+          "quantity": "1 cup"
+        },
+        {
+          "name": "tomato",
+          "quantity": "4 medium"
+        },
+        {
+          "name": "onion",
+          "quantity": "1 large"
+        },
+        {
+          "name": "garlic",
+          "quantity": "4 cloves"
+        },
+        {
+          "name": "ginger",
+          "quantity": "1 inch"
+        },
+        {
+          "name": "garam masala",
+          "quantity": "2 tsp"
+        },
+        {
+          "name": "turmeric",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "cumin",
+          "quantity": "1 tsp"
+        }
+      ],
+      "health_functions": [
+        "anti-inflammatory",
+        "high-protein"
+      ],
+      "macronutrients": {
+        "calories": 520,
+        "protein_g": 38,
+        "carbs_g": 15,
+        "fat_g": 35,
+        "fiber_g": 3
+      },
+      "micronutrients": {
+        "iron_mg": 2.8,
+        "zinc_mg": 3.5,
+        "vitamin_b12_mcg": 1.2,
+        "vitamin_d_iu": 20,
+        "vitamin_a_iu": 1200,
+        "calcium_mg": 120,
+        "potassium_mg": 580,
+        "magnesium_mg": 48
+      }
+    },
+    {
+      "name": "Greek Salad",
+      "category": "Mediterranean",
+      "subcategory": "Salad",
+      "ingredients": [
+        {
+          "name": "cucumber",
+          "quantity": "2 medium"
+        },
+        {
+          "name": "tomato",
+          "quantity": "3 medium"
+        },
+        {
+          "name": "red onion",
+          "quantity": "1 small"
+        },
+        {
+          "name": "feta cheese",
+          "quantity": "4 oz"
+        },
+        {
+          "name": "olive oil",
+          "quantity": "3 tbsp"
+        },
+        {
+          "name": "kalamata olives",
+          "quantity": "0.5 cup"
+        },
+        {
+          "name": "oregano",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "lemon juice",
+          "quantity": "2 tbsp"
+        }
+      ],
+      "health_functions": [
+        "heart-healthy",
+        "anti-inflammatory",
+        "low-calorie"
+      ],
+      "macronutrients": {
+        "calories": 280,
+        "protein_g": 8,
+        "carbs_g": 12,
+        "fat_g": 22,
+        "fiber_g": 3
+      },
+      "micronutrients": {
+        "calcium_mg": 210,
+        "potassium_mg": 450,
+        "vitamin_c_mg": 28,
+        "vitamin_k_mcg": 35,
+        "folate_mcg": 40,
+        "iron_mg": 1.5
+      }
+    },
+    {
+      "name": "Spaghetti Carbonara",
+      "category": "Italian",
+      "subcategory": "Pasta",
+      "ingredients": [
+        {
+          "name": "spaghetti",
+          "quantity": "1 lb"
+        },
+        {
+          "name": "pancetta",
+          "quantity": "6 oz"
+        },
+        {
+          "name": "egg yolk",
+          "quantity": "4"
+        },
+        {
+          "name": "parmesan cheese",
+          "quantity": "1 cup"
+        },
+        {
+          "name": "black pepper",
+          "quantity": "2 tsp"
+        },
+        {
+          "name": "garlic",
+          "quantity": "2 cloves"
+        }
+      ],
+      "health_functions": [
+        "high-protein",
+        "energy-boosting"
+      ],
+      "macronutrients": {
+        "calories": 580,
+        "protein_g": 28,
+        "carbs_g": 65,
+        "fat_g": 22,
+        "fiber_g": 3
+      },
+      "micronutrients": {
+        "calcium_mg": 350,
+        "iron_mg": 3.8,
+        "zinc_mg": 3.2,
+        "vitamin_b12_mcg": 1.8,
+        "selenium_mcg": 45,
+        "phosphorus_mg": 380
+      }
+    },
+    {
+      "name": "Salmon Teriyaki",
+      "category": "Japanese",
+      "subcategory": "Seafood",
+      "ingredients": [
+        {
+          "name": "salmon fillet",
+          "quantity": "4 fillets"
+        },
+        {
+          "name": "soy sauce",
+          "quantity": "0.25 cup"
+        },
+        {
+          "name": "mirin",
+          "quantity": "2 tbsp"
+        },
+        {
+          "name": "brown sugar",
+          "quantity": "2 tbsp"
+        },
+        {
+          "name": "ginger",
+          "quantity": "1 tbsp"
+        },
+        {
+          "name": "garlic",
+          "quantity": "2 cloves"
+        },
+        {
+          "name": "sesame oil",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "green onion",
+          "quantity": "3 stalks"
+        }
+      ],
+      "health_functions": [
+        "heart-healthy",
+        "brain-health",
+        "anti-inflammatory"
+      ],
+      "macronutrients": {
+        "calories": 380,
+        "protein_g": 42,
+        "carbs_g": 12,
+        "fat_g": 18,
+        "fiber_g": 0
+      },
+      "micronutrients": {
+        "omega3_g": 2.5,
+        "vitamin_d_iu": 570,
+        "vitamin_b12_mcg": 4.8,
+        "selenium_mcg": 42,
+        "potassium_mg": 620,
+        "phosphorus_mg": 310
+      }
+    },
+    {
+      "name": "Spinach Dal",
+      "category": "Indian",
+      "subcategory": "Lentils",
+      "ingredients": [
+        {
+          "name": "red lentils",
+          "quantity": "1.5 cups"
+        },
+        {
+          "name": "spinach",
+          "quantity": "4 cups"
+        },
+        {
+          "name": "onion",
+          "quantity": "1 large"
+        },
+        {
+          "name": "garlic",
+          "quantity": "3 cloves"
+        },
+        {
+          "name": "turmeric",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "cumin",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "ghee",
+          "quantity": "2 tbsp"
+        },
+        {
+          "name": "tomato",
+          "quantity": "2 medium"
+        }
+      ],
+      "health_functions": [
+        "high-fiber",
+        "iron-rich",
+        "anti-inflammatory"
+      ],
+      "macronutrients": {
+        "calories": 320,
+        "protein_g": 22,
+        "carbs_g": 48,
+        "fat_g": 6,
+        "fiber_g": 15
+      },
+      "micronutrients": {
+        "iron_mg": 6.5,
+        "folate_mcg": 358,
+        "magnesium_mg": 98,
+        "potassium_mg": 730,
+        "zinc_mg": 2.5,
+        "vitamin_k_mcg": 280,
+        "vitamin_c_mg": 18
+      }
+    },
+    {
+      "name": "Caesar Salad",
+      "category": "American",
+      "subcategory": "Salad",
+      "ingredients": [
+        {
+          "name": "romaine lettuce",
+          "quantity": "2 heads"
+        },
+        {
+          "name": "parmesan cheese",
+          "quantity": "0.5 cup"
+        },
+        {
+          "name": "croutons",
+          "quantity": "1 cup"
+        },
+        {
+          "name": "egg yolk",
+          "quantity": "1"
+        },
+        {
+          "name": "olive oil",
+          "quantity": "0.5 cup"
+        },
+        {
+          "name": "lemon juice",
+          "quantity": "2 tbsp"
+        },
+        {
+          "name": "garlic",
+          "quantity": "2 cloves"
+        },
+        {
+          "name": "anchovy",
+          "quantity": "4 fillets"
+        }
+      ],
+      "health_functions": [
+        "bone-health",
+        "low-calorie"
+      ],
+      "macronutrients": {
+        "calories": 320,
+        "protein_g": 12,
+        "carbs_g": 18,
+        "fat_g": 24,
+        "fiber_g": 4
+      },
+      "micronutrients": {
+        "calcium_mg": 280,
+        "vitamin_k_mcg": 120,
+        "vitamin_a_iu": 4500,
+        "folate_mcg": 180,
+        "iron_mg": 2.2,
+        "vitamin_c_mg": 22
+      }
+    },
+    {
+      "name": "Beef Tacos",
+      "category": "Mexican",
+      "subcategory": "Tacos",
+      "ingredients": [
+        {
+          "name": "ground beef",
+          "quantity": "1 lb"
+        },
+        {
+          "name": "corn tortilla",
+          "quantity": "12"
+        },
+        {
+          "name": "onion",
+          "quantity": "1 medium"
+        },
+        {
+          "name": "tomato",
+          "quantity": "2 medium"
+        },
+        {
+          "name": "cilantro",
+          "quantity": "0.5 cup"
+        },
+        {
+          "name": "lime juice",
+          "quantity": "2 tbsp"
+        },
+        {
+          "name": "chili powder",
+          "quantity": "2 tsp"
+        },
+        {
+          "name": "cumin",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "cheddar cheese",
+          "quantity": "1 cup"
+        }
+      ],
+      "health_functions": [
+        "high-protein",
+        "energy-boosting"
+      ],
+      "macronutrients": {
+        "calories": 480,
+        "protein_g": 32,
+        "carbs_g": 35,
+        "fat_g": 24,
+        "fiber_g": 5
+      },
+      "micronutrients": {
+        "iron_mg": 4.5,
+        "zinc_mg": 6.2,
+        "vitamin_b12_mcg": 2.8,
+        "calcium_mg": 280,
+        "potassium_mg": 520,
+        "selenium_mcg": 28
+      }
+    },
+    {
+      "name": "Pad Thai",
+      "category": "Thai",
+      "subcategory": "Noodles",
+      "ingredients": [
+        {
+          "name": "rice noodles",
+          "quantity": "8 oz"
+        },
+        {
+          "name": "shrimp",
+          "quantity": "1 lb"
+        },
+        {
+          "name": "egg",
+          "quantity": "2"
+        },
+        {
+          "name": "bean sprouts",
+          "quantity": "2 cups"
+        },
+        {
+          "name": "peanuts",
+          "quantity": "0.25 cup"
+        },
+        {
+          "name": "green onion",
+          "quantity": "4 stalks"
+        },
+        {
+          "name": "lime juice",
+          "quantity": "3 tbsp"
+        },
+        {
+          "name": "fish sauce",
+          "quantity": "3 tbsp"
+        },
+        {
+          "name": "brown sugar",
+          "quantity": "2 tbsp"
+        },
+        {
+          "name": "garlic",
+          "quantity": "3 cloves"
+        }
+      ],
+      "health_functions": [
+        "high-protein",
+        "energy-boosting"
+      ],
+      "macronutrients": {
+        "calories": 420,
+        "protein_g": 28,
+        "carbs_g": 52,
+        "fat_g": 12,
+        "fiber_g": 3
+      },
+      "micronutrients": {
+        "selenium_mcg": 48,
+        "iron_mg": 3.5,
+        "zinc_mg": 2.8,
+        "vitamin_b12_mcg": 1.5,
+        "magnesium_mg": 65,
+        "phosphorus_mg": 280
+      }
+    },
+    {
+      "name": "Avocado Toast",
+      "category": "American",
+      "subcategory": "Breakfast",
+      "ingredients": [
+        {
+          "name": "sourdough bread",
+          "quantity": "2 slices"
+        },
+        {
+          "name": "avocado",
+          "quantity": "1 large"
+        },
+        {
+          "name": "lemon juice",
+          "quantity": "1 tsp"
+        },
+        {
+          "name": "red pepper flakes",
+          "quantity": "0.25 tsp"
+        },
+        {
+          "name": "salt",
+          "quantity": "to taste"
+        },
+        {
+          "name": "olive oil",
+          "quantity": "1 tsp"
+        }
+      ],
+      "health_functions": [
+        "heart-healthy",
+        "high-fiber",
+        "anti-inflammatory"
+      ],
+      "macronutrients": {
+        "calories": 320,
+        "protein_g": 8,
+        "carbs_g": 35,
+        "fat_g": 18,
+        "fiber_g": 10
+      },
+      "micronutrients": {
+        "potassium_mg": 680,
+        "folate_mcg": 120,
+        "vitamin_k_mcg": 28,
+        "vitamin_c_mg": 12,
+        "vitamin_e_mg": 3.2,
+        "magnesium_mg": 42
+      }
+    }
+  ],
+  "substitutions": {
+    "ghee": [
+      "butter",
+      "clarified butter",
+      "coconut oil"
+    ],
+    "butter": [
+      "ghee",
+      "olive oil",
+      "margarine",
+      "coconut oil"
+    ],
+    "olive oil": [
+      "avocado oil",
+      "vegetable oil",
+      "canola oil"
+    ],
+    "heavy cream": [
+      "coconut cream",
+      "cashew cream"
+    ],
+    "soy sauce": [
+      "tamari",
+      "coconut aminos"
+    ],
+    "parmesan cheese": [
+      "pecorino romano",
+      "asiago cheese"
+    ],
+    "cheddar cheese": [
+      "monterey jack",
+      "colby cheese"
+    ],
+    "feta cheese": [
+      "goat cheese",
+      "queso fresco"
+    ],
+    "yogurt": [
+      "greek yogurt",
+      "sour cream"
+    ],
+    "brown sugar": [
+      "coconut sugar",
+      "honey",
+      "maple syrup"
+    ],
+    "spaghetti": [
+      "linguine",
+      "fettuccine",
+      "bucatini"
+    ],
+    "rice noodles": [
+      "glass noodles",
+      "vermicelli"
+    ],
+    "basmati rice": [
+      "jasmine rice",
+      "long grain rice"
+    ],
+    "chicken breast": [
+      "chicken thigh",
+      "turkey breast"
+    ],
+    "chicken thigh": [
+      "chicken breast",
+      "turkey thigh"
+    ],
+    "ground beef": [
+      "ground turkey",
+      "ground lamb"
+    ],
+    "salmon fillet": [
+      "trout fillet",
+      "arctic char"
+    ],
+    "shrimp": [
+      "prawns",
+      "langoustine"
+    ],
+    "red lentils": [
+      "yellow lentils",
+      "green lentils"
+    ],
+    "spinach": [
+      "kale",
+      "swiss chard",
+      "collard greens"
+    ],
+    "romaine lettuce": [
+      "butter lettuce",
+      "iceberg lettuce"
+    ]
+  },
+  "ailment_nutrient_map": {
+    "anemia": {
+      "needs": [
+        "iron_mg",
+        "vitamin_b12_mcg",
+        "folate_mcg"
+      ],
+      "avoid": []
+    },
+    "osteoporosis": {
+      "needs": [
+        "calcium_mg",
+        "vitamin_d_iu",
+        "vitamin_k_mcg"
+      ],
+      "avoid": []
+    },
+    "hypertension": {
+      "needs": [
+        "potassium_mg",
+        "magnesium_mg"
+      ],
+      "avoid": [
+        "sodium_mg"
+      ]
+    },
+    "depression": {
+      "needs": [
+        "omega3_g",
+        "vitamin_d_iu",
+        "folate_mcg",
+        "vitamin_b12_mcg"
+      ],
+      "avoid": []
+    },
+    "type2_diabetes": {
+      "needs": [
+        "fiber_g",
+        "magnesium_mg",
+        "chromium_mcg"
+      ],
+      "avoid": []
+    },
+    "inflammation": {
+      "needs": [
+        "omega3_g",
+        "vitamin_c_mg",
+        "vitamin_e_mg"
+      ],
+      "avoid": []
+    }
+  }
+}
