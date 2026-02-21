@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional
 from datetime import datetime
 
@@ -6,30 +6,31 @@ from datetime import datetime
 class AilmentBase(BaseModel):
     name: str
     category: str
-    dietary_restrictions: str
+    needs: str
+    avoid: Optional[str] = ""
 
 class AilmentOut(AilmentBase):
     id: int
-    
+
     class Config:
         from_attributes = True
 
 # User schemas
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=6, max_length=60)
     ailment_ids: List[int]
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., max_length=60)
 
 class UserOut(BaseModel):
     id: int
     email: str
     created_at: datetime
     ailments: List[AilmentOut]
-    
+
     class Config:
         from_attributes = True
 
@@ -74,7 +75,7 @@ class RecipeFeedbackOut(BaseModel):
     rating: Optional[int] = None
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -83,3 +84,7 @@ class RecommendationsResponse(BaseModel):
     user_restrictions: List[str]
     skipped_count: int
     cooked_count: int
+
+class YouTubeResponse(BaseModel):
+    youtube_url: Optional[str] = None
+    title: Optional[str] = None

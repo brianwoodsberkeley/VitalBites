@@ -1,95 +1,112 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-  getCurrentUser, 
-  logout, 
-  isLoggedIn, 
-  getRecommendations, 
-  submitFeedback,
-  getFeedbackHistory 
-} from '../services/api';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import { getCurrentUser, getRecommendations, getRecommendationsByUser, submitFeedback, getFeedbackHistory, getFeedbackHistoryByUser, logout, isLoggedIn, deleteFeedback } from '../services/api';
+import { ALL_AILMENTS } from '../data/ailments';
+import Logo from '../components/Logo';
 import '../styles.css';
 
 function Dashboard() {
   const navigate = useNavigate();
+  const { userId: urlUserId } = useParams();
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [recipes, setRecipes] = useState([]);
-  const [loadingRecipes, setLoadingRecipes] = useState(false);
-  const [stats, setStats] = useState({ skipped: 0, cooked: 0 });
-  const [selectedRecipe, setSelectedRecipe] = useState(null);
+  const [cookedHistory, setCookedHistory] = useState([]);
+  const [skippedHistory, setSkippedHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('recommendations');
-  const [history, setHistory] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const isOwner = isLoggedIn() && user && String(localStorage.getItem('userId')) === String(user.id);
+  const effectiveUserId = urlUserId || localStorage.getItem('userId');
 
   useEffect(() => {
-    if (!isLoggedIn()) {
-      navigate('/login');
-      return;
-    }
+    loadData();
+  }, [urlUserId]);
 
-    const fetchUser = async () => {
-      try {
-        const userData = await getCurrentUser();
-        setUser(userData);
-        // Load recommendations after getting user
-        loadRecommendations();
-      } catch (err) {
-        console.error('Failed to fetch user:', err);
-        logout();
-        navigate('/login');
-      } finally {
-        setLoading(false);
+  const loadData = async () => {
+    try {
+      setLoading(true);
+
+      let userData;
+      if (urlUserId) {
+        const { getUserById } = await import('../services/api');
+        userData = await getUserById(urlUserId);
+      } else {
+        userData = await getCurrentUser();
       }
-    };
+      setUser(userData);
 
-    fetchUser();
-  }, [navigate]);
+      const uid = urlUserId || userData.id;
 
-  const loadRecommendations = async () => {
-    setLoadingRecipes(true);
-    try {
-      const data = await getRecommendations(10);
-      setRecipes(data.recipes);
-      setStats({ skipped: data.skipped_count, cooked: data.cooked_count });
+      const [recsData, cooked, skipped] = await Promise.all([
+        urlUserId ? getRecommendationsByUser(uid) : getRecommendations(),
+        urlUserId ? getFeedbackHistoryByUser(uid, true, false) : getFeedbackHistory(true, false),
+        urlUserId ? getFeedbackHistoryByUser(uid, false, true) : getFeedbackHistory(false, true),
+      ]);
+
+      setRecipes(recsData.recipes || recsData);
+      setCookedHistory(cooked);
+      setSkippedHistory(skipped);
     } catch (err) {
-      console.error('Failed to load recommendations:', err);
+      console.error('Failed to load data:', err);
+      if (!urlUserId) {
+        navigate('/login');
+      }
     } finally {
-      setLoadingRecipes(false);
+      setLoading(false);
     }
   };
 
-  const loadHistory = async (cookedOnly = false, skippedOnly = false) => {
-    setLoadingHistory(true);
+  const handleRefresh = async () => {
+    setRefreshing(true);
     try {
-      const data = await getFeedbackHistory(cookedOnly, skippedOnly);
-      setHistory(data);
+      const recsData = urlUserId
+        ? await getRecommendationsByUser(effectiveUserId)
+        : await getRecommendations();
+      setRecipes(recsData.recipes || recsData);
     } catch (err) {
-      console.error('Failed to load history:', err);
+      console.error('Failed to refresh:', err);
     } finally {
-      setLoadingHistory(false);
+      setRefreshing(false);
     }
   };
 
-  const handleCooked = async (recipe) => {
+  const handleCooked = async (recipe, e) => {
+    e.stopPropagation();
     try {
       await submitFeedback(recipe, true, false);
-      // Remove from current list and update stats
       setRecipes(prev => prev.filter(r => r.id !== recipe.id));
-      setStats(prev => ({ ...prev, cooked: prev.cooked + 1 }));
+      const cooked = await getFeedbackHistory(true, false);
+      setCookedHistory(cooked);
     } catch (err) {
       console.error('Failed to mark as cooked:', err);
     }
   };
 
-  const handleSkip = async (recipe) => {
+  const handleSkip = async (recipe, e) => {
+    e.stopPropagation();
     try {
       await submitFeedback(recipe, false, true);
-      // Remove from current list and update stats
       setRecipes(prev => prev.filter(r => r.id !== recipe.id));
-      setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }));
+      const skipped = await getFeedbackHistory(false, true);
+      setSkippedHistory(skipped);
     } catch (err) {
-      console.error('Failed to skip recipe:', err);
+      console.error('Failed to skip:', err);
+    }
+  };
+
+  const handleUndo = async (recipeId) => {
+    try {
+      await deleteFeedback(recipeId);
+      const [cooked, skipped] = await Promise.all([
+        getFeedbackHistory(true, false),
+        getFeedbackHistory(false, true),
+      ]);
+      setCookedHistory(cooked);
+      setSkippedHistory(skipped);
+    } catch (err) {
+      console.error('Failed to undo:', err);
     }
   };
 
@@ -98,169 +115,168 @@ function Dashboard() {
     navigate('/login');
   };
 
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    if (tab === 'cooked') {
-      loadHistory(true, false);
-    } else if (tab === 'skipped') {
-      loadHistory(false, true);
-    }
+  const handleRecipeClick = (recipe) => {
+    navigate(`/u/${effectiveUserId}/recipe/${recipe.id}`, { state: { recipe } });
+  };
+
+  const getUserAilmentNames = () => {
+    if (!user || !user.ailment_ids) return [];
+    return user.ailment_ids.map(id => {
+      const ailment = ALL_AILMENTS.find(a => a.id === id);
+      return ailment ? ailment.name : `Condition #${id}`;
+    });
   };
 
   if (loading) {
     return (
-      <div className="container">
-        <div className="card">
-          <p className="text-center">Loading...</p>
+      <div className="dashboard bg-dashboard">
+        <div className="navbar">
+          <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
+        </div>
+        <div className="dashboard-content">
+          <div className="loading-recipes">Loading your dashboard...</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="dashboard">
-      <nav className="navbar">
-        <div className="navbar-brand">🥗 Recipe Recommender</div>
+    <div className="dashboard bg-dashboard">
+      <div className="navbar">
+        <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
         <div className="navbar-user">
-          <span className="user-email">{user?.email}</span>
-          <button className="logout-btn" onClick={handleLogout}>
-            Logout
-          </button>
+          {user && <span className="user-email">{user.email}</span>}
+          <div className="hamburger-wrapper">
+            <button className="hamburger-btn" onClick={() => setMenuOpen(!menuOpen)}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <rect y="3" width="20" height="2" rx="1" />
+                <rect y="9" width="20" height="2" rx="1" />
+                <rect y="15" width="20" height="2" rx="1" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <>
+                <div className="hamburger-backdrop" onClick={() => setMenuOpen(false)} />
+                <div className="hamburger-menu">
+                  <div className="hamburger-menu-header">
+                    <div className="hamburger-menu-email">{user?.email}</div>
+                  </div>
+                  {isOwner && (
+                    <button
+                      className="hamburger-menu-item"
+                      onClick={() => { setMenuOpen(false); navigate(`/u/${effectiveUserId}/profile`); }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1c-3.31 0-6 1.79-6 4v1h12v-1c0-2.21-2.69-4-6-4z"/></svg>
+                      Edit Profile
+                    </button>
+                  )}
+                  <div className="hamburger-menu-divider" />
+                  <button
+                    className="hamburger-menu-item hamburger-menu-item-danger"
+                    onClick={() => { setMenuOpen(false); handleLogout(); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 2a1 1 0 00-1 1v2a1 1 0 002 0V4h5v8H7v-1a1 1 0 00-2 0v2a1 1 0 001 1h6a1 1 0 001-1V3a1 1 0 00-1-1H6z"/><path d="M1.293 7.293a1 1 0 000 1.414l2 2a1 1 0 001.414-1.414L4.414 9H10a1 1 0 000-2H4.414l.293-.293a1 1 0 00-1.414-1.414l-2 2z"/></svg>
+                    Sign Out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-      </nav>
+      </div>
 
       <div className="dashboard-content">
-        {/* Stats Bar */}
+        {/* Stats */}
         <div className="stats-bar">
           <div className="stat-item">
-            <span className="stat-number">{stats.cooked}</span>
-            <span className="stat-label">Recipes Cooked</span>
+            <span className="stat-number">{recipes.length}</span>
+            <span className="stat-label">Recipes</span>
           </div>
           <div className="stat-item">
-            <span className="stat-number">{stats.skipped}</span>
-            <span className="stat-label">Recipes Skipped</span>
+            <span className="stat-number">{cookedHistory.length}</span>
+            <span className="stat-label">Cooked</span>
           </div>
           <div className="stat-item">
-            <span className="stat-number">{user?.ailments?.length || 0}</span>
-            <span className="stat-label">Health Conditions</span>
+            <span className="stat-number">{skippedHistory.length}</span>
+            <span className="stat-label">Skipped</span>
           </div>
         </div>
 
-        {/* Health Conditions */}
+        {/* Health Profile */}
         <div className="welcome-card">
-          <h3 style={{ marginBottom: '0.75rem', color: '#333' }}>Your Health Profile</h3>
+          <div className="welcome-title">Health Profile</div>
           <div className="ailments-list">
-            {user?.ailments?.length > 0 ? (
-              user.ailments.map((ailment) => (
-                <span key={ailment.id} className="ailment-tag">
-                  {ailment.name}
-                </span>
-              ))
-            ) : (
-              <p style={{ color: '#888' }}>No conditions selected</p>
-            )}
+            {getUserAilmentNames().map((name, i) => (
+              <span key={i} className="ailment-tag">{name}</span>
+            ))}
           </div>
         </div>
 
         {/* Tabs */}
         <div className="tabs">
-          <button 
-            className={`tab ${activeTab === 'recommendations' ? 'active' : ''}`}
-            onClick={() => handleTabChange('recommendations')}
-          >
+          <button className={`tab ${activeTab === 'recommendations' ? 'active' : ''}`} onClick={() => setActiveTab('recommendations')}>
             Recommendations
           </button>
-          <button 
-            className={`tab ${activeTab === 'cooked' ? 'active' : ''}`}
-            onClick={() => handleTabChange('cooked')}
-          >
+          <button className={`tab ${activeTab === 'cooked' ? 'active' : ''}`} onClick={() => setActiveTab('cooked')}>
             Cooked
           </button>
-          <button 
-            className={`tab ${activeTab === 'skipped' ? 'active' : ''}`}
-            onClick={() => handleTabChange('skipped')}
-          >
+          <button className={`tab ${activeTab === 'skipped' ? 'active' : ''}`} onClick={() => setActiveTab('skipped')}>
             Skipped
           </button>
         </div>
 
-        {/* Tab Content */}
+        {/* Recommendations Tab */}
         {activeTab === 'recommendations' && (
           <div className="recipes-section">
             <div className="section-header">
-              <h2>Today's Recommendations</h2>
-              <button 
-                className="refresh-btn" 
-                onClick={loadRecommendations}
-                disabled={loadingRecipes}
-              >
-                {loadingRecipes ? 'Loading...' : '🔄 Get New Recipes'}
+              <h2>Recommended for You</h2>
+              <button className="refresh-btn" onClick={handleRefresh} disabled={refreshing}>
+                {refreshing ? 'Loading...' : 'Get New Recipes'}
               </button>
             </div>
-
-            {loadingRecipes ? (
-              <div className="loading-recipes">
-                <p>Finding delicious recipes for you...</p>
-              </div>
-            ) : recipes.length > 0 ? (
-              <div className="recipes-grid">
-                {recipes.map((recipe) => (
-                  <div key={recipe.id} className="recipe-card">
-                    <div 
-                      className="recipe-image"
-                      style={{ backgroundImage: `url(${recipe.image})` }}
-                      onClick={() => setSelectedRecipe(recipe)}
-                    >
-                      {recipe.previously_cooked && (
-                        <span className="cooked-badge">✓ Cooked Before</span>
-                      )}
-                    </div>
-                    <div className="recipe-content">
-                      <h3 
-                        className="recipe-name"
-                        onClick={() => setSelectedRecipe(recipe)}
-                      >
-                        {recipe.name}
-                      </h3>
-                      <p className="recipe-category">{recipe.category} {recipe.area && `• ${recipe.area}`}</p>
-                      <div className="recipe-actions">
-                        <button 
-                          className="btn-cooked"
-                          onClick={() => handleCooked(recipe)}
-                        >
-                          ✓ I Cooked This
-                        </button>
-                        <button 
-                          className="btn-skip"
-                          onClick={() => handleSkip(recipe)}
-                        >
-                          ✗ Skip
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <p className="recipe-instructions-hint">Click on a recipe to see details and cooking instructions</p>
+            {recipes.length === 0 ? (
+              <div className="empty-message">No recipes found. Try refreshing!</div>
             ) : (
-              <div className="placeholder-card">
-                <div className="placeholder-icon">🍳</div>
-                <h3 className="placeholder-title">No recipes available</h3>
-                <p className="placeholder-text">
-                  Click "Get New Recipes" to load recommendations!
-                </p>
+              <div className="recipe-table-container">
+                <table className="recipe-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Recipe</th>
+                      <th>Category</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recipes.map((recipe, index) => (
+                      <tr key={recipe.id} className="recipe-table-row" onClick={() => handleRecipeClick(recipe)}>
+                        <td className="recipe-table-num">{index + 1}</td>
+                        <td className="recipe-table-name">
+                          {recipe.name}
+                          {cookedHistory.some(h => h.recipe_id === recipe.id) && (
+                            <span className="cooked-badge-inline">Cooked</span>
+                          )}
+                        </td>
+                        <td className="recipe-table-category">{recipe.category || recipe.strCategory || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
         )}
 
+        {/* Cooked Tab */}
         {activeTab === 'cooked' && (
           <div className="history-section">
-            <h2>Recipes You've Cooked</h2>
-            {loadingHistory ? (
-              <p>Loading...</p>
-            ) : history.length > 0 ? (
+            <h2>Cooked Recipes</h2>
+            <p className="section-description">Recipes you've prepared</p>
+            {cookedHistory.length === 0 ? (
+              <div className="empty-message">No cooked recipes yet. Start cooking!</div>
+            ) : (
               <div className="history-list">
-                {history.map((item) => (
+                {cookedHistory.map((item) => (
                   <div key={item.id} className="history-item">
                     {item.recipe_image && (
                       <img src={item.recipe_image} alt={item.recipe_name} className="history-image" />
@@ -268,29 +284,29 @@ function Dashboard() {
                     <div className="history-info">
                       <h4>{item.recipe_name}</h4>
                       <p className="history-date">
-                        Cooked on {new Date(item.updated_at).toLocaleDateString()}
+                        {new Date(item.created_at).toLocaleDateString()}
+                        {isOwner && (
+                          <> &middot; <span className="link" onClick={() => handleUndo(item.recipe_id)} style={{ cursor: 'pointer' }}>Undo</span></>
+                        )}
                       </p>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="empty-message">You haven't cooked any recipes yet!</p>
             )}
           </div>
         )}
 
+        {/* Skipped Tab */}
         {activeTab === 'skipped' && (
           <div className="history-section">
             <h2>Skipped Recipes</h2>
-            <p className="section-description">
-              These recipes won't appear in your recommendations anymore.
-            </p>
-            {loadingHistory ? (
-              <p>Loading...</p>
-            ) : history.length > 0 ? (
+            <p className="section-description">Recipes you've passed on</p>
+            {skippedHistory.length === 0 ? (
+              <div className="empty-message">No skipped recipes.</div>
+            ) : (
               <div className="history-list">
-                {history.map((item) => (
+                {skippedHistory.map((item) => (
                   <div key={item.id} className="history-item">
                     {item.recipe_image && (
                       <img src={item.recipe_image} alt={item.recipe_name} className="history-image" />
@@ -298,67 +314,19 @@ function Dashboard() {
                     <div className="history-info">
                       <h4>{item.recipe_name}</h4>
                       <p className="history-date">
-                        Skipped on {new Date(item.updated_at).toLocaleDateString()}
+                        {new Date(item.created_at).toLocaleDateString()}
+                        {isOwner && (
+                          <> &middot; <span className="link" onClick={() => handleUndo(item.recipe_id)} style={{ cursor: 'pointer' }}>Undo</span></>
+                        )}
                       </p>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="empty-message">No skipped recipes.</p>
             )}
           </div>
         )}
       </div>
-
-      {/* Recipe Detail Modal */}
-      {selectedRecipe && (
-        <div className="modal-overlay" onClick={() => setSelectedRecipe(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setSelectedRecipe(null)}>×</button>
-            <img src={selectedRecipe.image} alt={selectedRecipe.name} className="modal-image" />
-            <h2>{selectedRecipe.name}</h2>
-            <p className="modal-category">{selectedRecipe.category} {selectedRecipe.area && `• ${selectedRecipe.area}`}</p>
-            
-            <h3>Ingredients</h3>
-            <ul className="ingredients-list">
-              {selectedRecipe.ingredients?.map((ing, idx) => (
-                <li key={idx}>{ing}</li>
-              ))}
-            </ul>
-            
-            <h3>Instructions</h3>
-            <p className="instructions">{selectedRecipe.instructions}</p>
-            
-            {selectedRecipe.youtube && (
-              <a href={selectedRecipe.youtube} target="_blank" rel="noopener noreferrer" className="youtube-link">
-                📺 Watch Video Tutorial
-              </a>
-            )}
-            
-            <div className="modal-actions">
-              <button 
-                className="btn-cooked large"
-                onClick={() => {
-                  handleCooked(selectedRecipe);
-                  setSelectedRecipe(null);
-                }}
-              >
-                ✓ I Cooked This
-              </button>
-              <button 
-                className="btn-skip large"
-                onClick={() => {
-                  handleSkip(selectedRecipe);
-                  setSelectedRecipe(null);
-                }}
-              >
-                ✗ Skip This Recipe
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

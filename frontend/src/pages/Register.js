@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AILMENTS_BY_CATEGORY } from '../data/ailments';
 import { register } from '../services/api';
+import Logo from '../components/Logo';
 import '../styles.css';
 
 function Register() {
@@ -14,7 +15,7 @@ function Register() {
   const [loading, setLoading] = useState(false);
 
   const handleAilmentToggle = (ailmentId) => {
-    setSelectedAilments(prev => 
+    setSelectedAilments(prev =>
       prev.includes(ailmentId)
         ? prev.filter(id => id !== ailmentId)
         : [...prev, ailmentId]
@@ -36,8 +37,8 @@ function Register() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 6 || password.length > 60) {
+      setError('Password must be between 6 and 60 characters');
       return;
     }
 
@@ -59,7 +60,16 @@ function Register() {
   };
 
   return (
-    <div className="container">
+    <div className="container register-bg">
+      <div className="brand-header">
+        <Link to="/">
+          <Logo height={140} />
+        </Link>
+      </div>
+      <div className="masthead">
+        <h1 className="masthead-title">Recipes that heal. Powered by science.</h1>
+        <p className="masthead-subtitle">Tell us your health goals and we'll recommend recipes matched to your nutritional needs — backed by USDA data, not guesswork.</p>
+      </div>
       <div className="card">
         <h1 className="title">Create Account</h1>
         <p className="subtitle">Get personalized recipe recommendations</p>
@@ -123,7 +133,10 @@ function Register() {
                       />
                       <div className="ailment-info">
                         <div className="ailment-name">{ailment.name}</div>
-                        <div className="ailment-restrictions">{ailment.restrictions}</div>
+                        <div className="ailment-restrictions">
+                          Needs: {ailment.needs}
+                          {ailment.avoid && <> · Avoid: {ailment.avoid}</>}
+                        </div>
                       </div>
                     </div>
                   ))}

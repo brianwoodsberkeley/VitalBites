@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+mined_config.json
+trained_model/
+df_foodcom_recipes_filtered.csv
+df_foodcom_recipes_filtered.parquet
+food.csv
+node_modules
+venv

@@ -1,37 +1,36 @@
 """
-VitalBites CSV → Knowledge Graph Triples Pipeline
-==================================================
-Converts df_foodcom_recipes_filtered.csv directly into triples.tsv
-for RotatE training. No intermediate JSON needed.
+VitalBites CSV → Knowledge Graph Triples Pipeline (v2)
+======================================================
+Converts df_foodcom_recipes_filtered.csv into triples.tsv for RotatE training.
 
-Your CSV structure:
-  - Name, RecipeCategory, cleaned_ingredients (numpy-style arrays)
-  - Macros: Calories, FatContent, ProteinContent, FiberContent, etc.
-  - Per-serving macros: Calories_per_serving, etc.
-  - HealthFunctions: LONG text descriptions (not short labels)
-  - MicronutrientHealthFunctions: LONG text descriptions → we extract nutrient names
-  - matched_fdc_ids: USDA FoodData Central IDs
+v2 Changes:
+  - Loads all mappings from mined_config.json (produced by mine_knowledge.py)
+  - Normalizes ingredient names to canonical forms
+  - Normalizes nutrient names to canonical forms
+  - Uses mined ailment mappings (50+ conditions vs 14 hardcoded)
+  - Uses validated substitutions (hundreds vs 34 hardcoded)
+  - Falls back to built-in defaults if mined_config.json not found
 
-The big challenge: Your CSV has ~9.7M LINES but that's because the
-HealthFunctions and MicronutrientHealthFunctions fields contain newlines
-inside quoted strings. A proper CSV parser handles this, but we need to
-be careful with memory for a dataset this large.
+Pipeline:
+    # Step 1: Mine knowledge (run once)
+    python mine_knowledge.py all --input df_foodcom_recipes_filtered.csv --api-key sk-ant-...
 
-Usage:
-    # Full pipeline — one command
+    # Step 2: Extract triples (uses mined_config.json automatically)
     python csv_to_triples_vitalbites.py --input df_foodcom_recipes_filtered.csv --output triples.tsv
 
-    # Then train RotatE
+    # Step 3: Train on Colab
     python train_and_infer.py train --triples triples.tsv --epochs 300 --dim 256
 
 Requirements:
-    pip install pandas   (for CSV parsing with multiline fields)
+    pip install pandas
 
 Author: Brian / LeeroyChainkins AI — VitalBites Project
 """
 
 import argparse
 import csv
+import json
+import os
 import re
 import sys
 from collections import Counter, defaultdict
@@ -39,111 +38,42 @@ from pathlib import Path
 
 
 # ══════════════════════════════════════════════════════════════════
-#  SECTION 1: MICRONUTRIENT DESCRIPTION → ENTITY NAME MAPPING
-# ══════════════════════════════════════════════════════════════════
-#
-# Your MicronutrientHealthFunctions column contains long descriptions
-# like "vital for oxygen delivery in blood, energy metabolism..."
-# We need to map these to short entity names like "iron".
-#
-# This is a keyword-match approach. Each key is a UNIQUE substring
-# from the description text. The value is the micronutrient name
-# that will become an entity in the knowledge graph.
+#  CONFIGURATION LOADER
 # ══════════════════════════════════════════════════════════════════
 
-MICRO_DESCRIPTION_TO_NUTRIENT = {
-    # Iron
+# Built-in fallback defaults (used only if mined_config.json is missing)
+_FALLBACK_MICRO = {
     "vital for oxygen delivery in blood, energy metabolism, and immune system function": "iron",
-
-    # Copper
     "vital for redox reactions, energy production, and cellular respiration": "copper",
     "helps with iron absorption, energy production, and the formation of collagen and neurotransmitters": "copper",
-
-    # Vitamin C
     "functions as an antioxidant, supports collagen synthesis, aids immune cell function, enhances iron absorption, and supports neurotransmitter synthesis": "vitamin_c",
-
-    # Folate
     "essential for dna synthesis, cell division, fetal development, and the prevention of neural tube defects": "folate",
-
-    # Calcium
     "supports bone and teeth strength, muscle function, nerve signaling, and blood coagulation": "calcium",
-
-    # Phosphorus
     "essential for bone mineralization, energy storage and transfer, and cell membrane integrity": "phosphorus",
-
-    # Zinc
     "supports immune health, cellular growth, enzyme function, and wound repair": "zinc",
-
-    # Magnesium
     "plays a role in enzymatic reactions including energy metabolism, muscle and nerve function, and dna synthesis": "magnesium",
-
-    # Potassium
     "maintains normal heart rhythm, muscle contractions, and nerve impulses by balancing fluids and electrolytes": "potassium",
-
-    # Sodium
     "controls blood volume and pressure, supports nerve impulse transmission and muscle contraction": "sodium",
-
-    # Selenium
     "protects cells from oxidative damage and supports thyroid hormone metabolism": "selenium",
-
-    # Vitamin E
     "protects membranes from oxidative stress, modulates inflammation, supports the immune system, and may have anti-cancer effects": "vitamin_e",
-
-    # Vitamin A
     "crucial for vision, immune response, skin health, and cellular differentiation": "vitamin_a",
-
-    # Vitamin D
     "regulates calcium and phosphorus homeostasis, supports bone health, and contributes to immune function": "vitamin_d",
-
-    # Vitamin K1
     "activates clotting factors and is essential for blood coagulation and bone metabolism": "vitamin_k1",
-
-    # Vitamin K2
     "cofactor for gamma-carboxylation of proteins, supports bone mineralization, vascular health, myelin repair, and has anti-inflammatory effects": "vitamin_k2",
-
-    # Vitamin B12
     "vital for red blood cell production, neurological function, and dna synthesis": "vitamin_b12",
     "they are vital for red blood cell production, neurological function, and dna synthesis": "vitamin_b12",
-
-    # Vitamin B6
     "coenzyme in over 140 reactions, including amino acid metabolism, neurotransmitter synthesis, hemoglobin production, and supports the immune system": "vitamin_b6",
-
-    # Thiamin (B1)
     "cofactor for enzymes involved in carbohydrate metabolism, supports energy production, nerve function, and mitochondrial health": "thiamin",
-
-    # Niacin (B3)
     "central role in redox reactions, energy production, dna repair, nervous system function, and maintaining the skin barrier": "niacin",
-
-    # Pantothenic Acid (B5)
     "required for fatty acid metabolism, synthesis of coenzyme a, and energy production": "pantothenic_acid",
-
-    # Biotin (B7)
     "important for fatty acid synthesis, gluconeogenesis, and amino acid metabolism": "biotin",
-
-    # Manganese
     "involved in bone formation, metabolism of carbohydrates and amino acids, and antioxidant protection": "manganese",
-
-    # Iodine
     "regulates metabolism, growth, and development via thyroid hormone synthesis": "iodine",
-
-    # Fatty acids (general)
     "fatty acids serve as a key energy source, components of triglycerides and phospholipids": "fatty_acids",
-
-    # Riboflavin (B2) — add if seen in your data
     "acts as a coenzyme in oxidation-reduction reactions, supports energy production": "riboflavin",
 }
 
-
-# ══════════════════════════════════════════════════════════════════
-#  SECTION 2: HEALTH FUNCTION DESCRIPTION → SHORT LABEL MAPPING
-# ══════════════════════════════════════════════════════════════════
-#
-# Your HealthFunctions column has descriptions like:
-# "fats provide a dense source of energy, aid in the absorption..."
-# We extract short, graph-friendly labels.
-# ══════════════════════════════════════════════════════════════════
-
-HEALTH_DESCRIPTION_TO_LABEL = {
+_FALLBACK_HEALTH = {
     "fats provide a dense source of energy": "energy-from-fat",
     "improves bowel regularity": "digestive-health",
     "lowers cholesterol": "cholesterol-support",
@@ -159,79 +89,7 @@ HEALTH_DESCRIPTION_TO_LABEL = {
     "cell communication": "cell-signaling",
 }
 
-
-# ══════════════════════════════════════════════════════════════════
-#  SECTION 3: MACRONUTRIENT THRESHOLDS (per serving)
-# ══════════════════════════════════════════════════════════════════
-#
-# We create HIGH_IN edges when a recipe's per-serving value
-# exceeds these thresholds. Tune based on your data distribution.
-# ══════════════════════════════════════════════════════════════════
-
-MACRO_THRESHOLDS = {
-    "ProteinContent_per_serving": ("protein", 15.0),      # >15g/serving = high protein
-    "FiberContent_per_serving": ("fiber", 5.0),            # >5g/serving = high fiber
-    "FatContent_per_serving": ("fat", 20.0),               # >20g/serving = high fat
-    "SaturatedFatContent_per_serving": ("saturated_fat", 10.0),
-    "SugarContent_per_serving": ("sugar", 15.0),           # >15g = high sugar
-    "SodiumContent_per_serving": ("sodium_high", 400.0),   # >400mg = high sodium
-}
-
-CALORIE_THRESHOLDS = {
-    "low-calorie": (0, 200),       # per serving
-    "moderate-calorie": (200, 400),
-    "high-calorie": (400, float("inf")),
-}
-
-
-# ══════════════════════════════════════════════════════════════════
-#  SECTION 4: INGREDIENT SUBSTITUTIONS (curated knowledge)
-# ══════════════════════════════════════════════════════════════════
-
-SUBSTITUTIONS = {
-    "ghee": ["butter", "clarified butter", "coconut oil"],
-    "butter": ["ghee", "olive oil", "margarine", "coconut oil"],
-    "olive oil": ["avocado oil", "vegetable oil", "canola oil"],
-    "vegetable oil": ["canola oil", "sunflower oil", "corn oil", "peanut oil"],
-    "heavy cream": ["coconut cream", "cashew cream", "whipping cream"],
-    "sour cream": ["greek yogurt", "plain yogurt"],
-    "yogurt": ["greek yogurt", "sour cream"],
-    "plain yogurt": ["greek yogurt", "vanilla yogurt"],
-    "soy sauce": ["tamari", "coconut aminos"],
-    "parmesan cheese": ["pecorino romano", "asiago cheese"],
-    "cheddar cheese": ["monterey jack", "colby cheese"],
-    "feta cheese": ["goat cheese", "queso fresco"],
-    "cream cheese": ["mascarpone", "neufchatel cheese"],
-    "brown sugar": ["coconut sugar", "honey", "maple syrup"],
-    "sugar": ["honey", "maple syrup", "agave nectar"],
-    "granulated sugar": ["sugar", "honey", "coconut sugar"],
-    "spaghetti": ["linguine", "fettuccine", "bucatini"],
-    "rice noodles": ["glass noodles", "vermicelli"],
-    "basmati rice": ["jasmine rice", "longgrain rice", "long grain rice"],
-    "chicken breast": ["chicken thigh", "turkey breast", "boneless chicken"],
-    "boneless chicken": ["chicken breast", "chicken thigh"],
-    "chicken thigh": ["chicken breast", "turkey thigh"],
-    "ground beef": ["ground turkey", "ground lamb", "ground bison"],
-    "salmon": ["trout", "arctic char", "steelhead"],
-    "shrimp": ["prawns", "langoustine"],
-    "red lentils": ["yellow lentils", "green lentils"],
-    "spinach": ["kale", "swiss chard", "collard greens"],
-    "romaine lettuce": ["butter lettuce", "iceberg lettuce"],
-    "milk": ["almond milk", "oat milk", "soy milk", "whole milk"],
-    "heavy whipping cream": ["coconut cream", "heavy cream"],
-    "lemon juice": ["lime juice", "white wine vinegar"],
-    "fresh lemon juice": ["lime juice", "lemon juice"],
-    "white wine": ["dry vermouth", "chicken broth"],
-    "all-purpose flour": ["whole wheat flour", "bread flour"],
-    "tortilla": ["corn tortilla", "flour tortilla", "naan"],
-}
-
-
-# ══════════════════════════════════════════════════════════════════
-#  SECTION 5: AILMENT → MICRONUTRIENT MAPPINGS (curated)
-# ══════════════════════════════════════════════════════════════════
-
-AILMENT_NUTRIENT_MAP = {
+_FALLBACK_AILMENTS = {
     "anemia": {"needs": ["iron", "vitamin_b12", "folate", "copper", "vitamin_c"], "avoid": []},
     "osteoporosis": {"needs": ["calcium", "vitamin_d", "vitamin_k1", "vitamin_k2", "phosphorus", "magnesium"], "avoid": []},
     "hypertension": {"needs": ["potassium", "magnesium", "calcium"], "avoid": ["sodium_high"]},
@@ -248,79 +106,126 @@ AILMENT_NUTRIENT_MAP = {
     "thyroid_issues": {"needs": ["iodine", "selenium"], "avoid": []},
 }
 
+_FALLBACK_SUBSTITUTIONS = {}  # empty — the mined ones are much better
 
-# ══════════════════════════════════════════════════════════════════
-#  SECTION 6: PARSING UTILITIES
-# ══════════════════════════════════════════════════════════════════
 
-def parse_numpy_array(raw: str) -> list[str]:
+def load_config(config_path: str) -> dict:
     """
-    Parse numpy-style array strings from your CSV.
+    Load mined_config.json. Falls back to built-in defaults if not found.
+    """
+    config = {
+        "MICRO_DESCRIPTION_TO_NUTRIENT": _FALLBACK_MICRO,
+        "HEALTH_DESCRIPTION_TO_LABEL": _FALLBACK_HEALTH,
+        "AILMENT_NUTRIENT_MAP": _FALLBACK_AILMENTS,
+        "SUBSTITUTIONS": _FALLBACK_SUBSTITUTIONS,
+        "INGREDIENT_NORMALIZE": {},
+        "NUTRIENT_NORMALIZE": {},
+    }
 
-    Handles formats like:
-        ['blueberries' 'granulated sugar' 'vanilla yogurt' 'lemon juice']
-        ['saffron' 'milk' 'hot green chili peppers' 'onions' 'garlic' 'clove'
-         'peppercorns' 'cardamom seed' ...]
-    
-    Note: These span MULTIPLE LINES in the CSV which is why the file
-    has 9.7M lines for ~500K recipes.
+    if os.path.exists(config_path):
+        print(f"  Loading mined config from {config_path}...")
+        with open(config_path) as f:
+            mined = json.load(f)
+
+        # Override defaults with mined data (only if present and non-empty)
+        for key in config:
+            if key in mined and mined[key]:
+                config[key] = mined[key]
+                print(f"    {key}: {len(mined[key])} entries (mined)")
+            else:
+                print(f"    {key}: {len(config[key])} entries (fallback)")
+    else:
+        print(f"  WARNING: {config_path} not found — using built-in fallback defaults.")
+        print(f"           Run mine_knowledge.py first for better results.")
+
+    return config
+
+
+# ══════════════════════════════════════════════════════════════════
+#  MACRONUTRIENT THRESHOLDS (not mined — these are domain constants)
+# ══════════════════════════════════════════════════════════════════
+
+MACRO_THRESHOLDS = {
+    "ProteinContent_per_serving": ("protein", 15.0),
+    "FiberContent_per_serving": ("fiber", 5.0),
+    "FatContent_per_serving": ("fat", 20.0),
+    "SaturatedFatContent_per_serving": ("saturated_fat", 10.0),
+    "SugarContent_per_serving": ("sugar", 15.0),
+    "SodiumContent_per_serving": ("sodium_high", 400.0),
+}
+
+CALORIE_THRESHOLDS = {
+    "low-calorie": (0, 200),
+    "moderate-calorie": (200, 400),
+    "high-calorie": (400, float("inf")),
+}
+
+
+# ══════════════════════════════════════════════════════════════════
+#  PARSING UTILITIES
+# ══════════════════════════════════════════════════════════════════
+
+def parse_numpy_array(raw: str, ingredient_normalize: dict = None) -> list[str]:
+    """
+    Parse numpy-style array strings and optionally normalize ingredient names.
     """
     if not raw or str(raw).strip() in ("", "nan", "None", "[]", "['']"):
         return []
 
     raw = str(raw).strip()
-    # Extract all single-quoted strings
     items = re.findall(r"'([^']*?)'", raw)
     if not items:
-        # Try double-quoted
         items = re.findall(r'"([^"]*?)"', raw)
-    return [normalize_ingredient(i) for i in items if i.strip()]
+
+    result = []
+    for i in items:
+        name = basic_normalize(i)
+        if not name:
+            continue
+        # Apply mined normalization if available
+        if ingredient_normalize and name in ingredient_normalize:
+            name = ingredient_normalize[name]
+        result.append(name)
+
+    return result
 
 
-def normalize_ingredient(name: str) -> str:
-    """Normalize ingredient name for consistent entity naming."""
+def basic_normalize(name: str) -> str:
+    """Basic ingredient normalization (always applied)."""
     name = name.lower().strip()
-    # Remove quantity prefixes that leak through
     name = re.sub(r"^\d+[\s/½¼¾⅓⅔⅛]*\s*", "", name)
-    # Normalize whitespace
     name = re.sub(r"\s+", " ", name)
-    # Remove trailing "of" artifacts
     name = re.sub(r"\s+of$", "", name)
     return name
 
 
-def extract_micronutrients_from_text(text: str) -> list[str]:
-    """
-    Extract micronutrient entity names from MicronutrientHealthFunctions text.
-
-    The text contains multiple descriptions separated by newlines,
-    each wrapped in quotes within a list. We match against our
-    known description→nutrient mapping.
-    """
+def extract_micronutrients(text: str, micro_map: dict, nutrient_normalize: dict) -> list[str]:
+    """Extract and normalize micronutrient names from description text."""
     if not text or str(text).strip() in ("", "nan", "None", "[]"):
         return []
 
     text_lower = str(text).lower()
     found = set()
 
-    for description_key, nutrient_name in MICRO_DESCRIPTION_TO_NUTRIENT.items():
+    for description_key, nutrient_name in micro_map.items():
         if description_key.lower() in text_lower:
-            found.add(nutrient_name)
+            # Apply nutrient normalization
+            canonical = nutrient_normalize.get(nutrient_name, nutrient_name)
+            if canonical:  # skip nulls
+                found.add(canonical)
 
     return sorted(found)
 
 
-def extract_health_functions_from_text(text: str) -> list[str]:
-    """
-    Extract short health function labels from HealthFunctions text.
-    """
+def extract_health_functions(text: str, health_map: dict) -> list[str]:
+    """Extract short health function labels from description text."""
     if not text or str(text).strip() in ("", "nan", "None", "[]"):
         return []
 
     text_lower = str(text).lower()
     found = set()
 
-    for description_key, label in HEALTH_DESCRIPTION_TO_LABEL.items():
+    for description_key, label in health_map.items():
         if description_key.lower() in text_lower:
             found.add(label)
 
@@ -328,62 +233,54 @@ def extract_health_functions_from_text(text: str) -> list[str]:
 
 
 def safe_float(val) -> float | None:
-    """Safely parse a float, return None on failure."""
     if val is None:
         return None
     try:
         f = float(str(val).strip())
-        return f if f == f else None  # NaN check
+        return f if f == f else None
     except (ValueError, TypeError):
         return None
 
 
 # ══════════════════════════════════════════════════════════════════
-#  SECTION 7: MAIN TRIPLE EXTRACTION
+#  MAIN TRIPLE EXTRACTION
 # ══════════════════════════════════════════════════════════════════
 
-def extract_triples_from_csv(input_path: str, output_path: str):
+def extract_triples_from_csv(input_path: str, output_path: str, config_path: str):
     """
-    Read df_foodcom_recipes_filtered.csv and produce triples.tsv.
-
-    For ~500K recipes, this will generate millions of triples.
-    We use pandas for parsing because the CSV has multiline fields
-    (HealthFunctions spans multiple lines inside quotes).
+    Read CSV and produce triples.tsv using mined_config.json for all mappings.
     """
     import pandas as pd
 
     print("=" * 70)
-    print("VitalBites CSV → Knowledge Graph Triples")
+    print("VitalBites CSV → Knowledge Graph Triples (v2)")
     print("=" * 70)
 
-    # ── Load CSV ──────────────────────────────────────────────────
-    # pandas handles the multiline quoted fields correctly
-    print(f"\nLoading {input_path}...")
-    print("  (This may take a minute for 9.7M lines — the multiline fields")
-    print("   mean ~500K actual recipes, pandas will handle it)")
+    # ── Load config ───────────────────────────────────────────────
+    config = load_config(config_path)
+    micro_map = config["MICRO_DESCRIPTION_TO_NUTRIENT"]
+    health_map = config["HEALTH_DESCRIPTION_TO_LABEL"]
+    ailment_map = config["AILMENT_NUTRIENT_MAP"]
+    substitutions = config["SUBSTITUTIONS"]
+    ingredient_normalize = config["INGREDIENT_NORMALIZE"]
+    nutrient_normalize = config["NUTRIENT_NORMALIZE"]
 
-    # For very large files, we can use chunked reading
-    # But first let's try loading it all — 500K recipes should fit in RAM
+    # ── Load CSV ──────────────────────────────────────────────────
+    print(f"\nLoading {input_path}...")
     try:
         df = pd.read_csv(
-            input_path,
-            dtype=str,  # Read everything as strings first for safe parsing
-            on_bad_lines="skip",  # Skip malformed rows
-            engine="python",  # Python engine handles multiline fields better
+            input_path, dtype=str, on_bad_lines="skip", engine="python",
         )
     except Exception as e:
         print(f"  Full load failed ({e}), trying chunked approach...")
         df = chunked_load(input_path)
 
     print(f"  Loaded {len(df):,} recipes")
-    print(f"  Columns: {list(df.columns)}")
 
     # ── Extract triples ───────────────────────────────────────────
-    triples = set()  # Use set for automatic dedup
+    triples = set()
     recipe_count = 0
     skipped = 0
-
-    # Stats tracking
     field_coverage = defaultdict(int)
 
     for idx, row in df.iterrows():
@@ -392,11 +289,16 @@ def extract_triples_from_csv(input_path: str, output_path: str):
             skipped += 1
             continue
 
-        # ── Ingredients ───────────────────────────────────────────
-        ingredients = parse_numpy_array(row.get("cleaned_ingredients", ""))
+        # ── Ingredients (with normalization) ──────────────────────
+        ingredients = parse_numpy_array(
+            row.get("cleaned_ingredients", ""),
+            ingredient_normalize=ingredient_normalize,
+        )
         if not ingredients:
-            # Try RecipeIngredientParts as fallback
-            ingredients = parse_numpy_array(row.get("RecipeIngredientParts", ""))
+            ingredients = parse_numpy_array(
+                row.get("RecipeIngredientParts", ""),
+                ingredient_normalize=ingredient_normalize,
+            )
         if not ingredients:
             skipped += 1
             continue
@@ -405,7 +307,7 @@ def extract_triples_from_csv(input_path: str, output_path: str):
         field_coverage["ingredients"] += 1
 
         for ing in ingredients:
-            if ing:  # skip empty strings
+            if ing:
                 triples.add((name, "CONTAINS_INGREDIENT", ing))
 
         # ── Category ──────────────────────────────────────────────
@@ -414,7 +316,7 @@ def extract_triples_from_csv(input_path: str, output_path: str):
             triples.add((name, "IN_CATEGORY", category))
             field_coverage["category"] += 1
 
-        # ── Macronutrient thresholds (per serving) ────────────────
+        # ── Macronutrient thresholds ──────────────────────────────
         for col, (nutrient_label, threshold) in MACRO_THRESHOLDS.items():
             val = safe_float(row.get(col))
             if val is not None and val >= threshold:
@@ -422,25 +324,25 @@ def extract_triples_from_csv(input_path: str, output_path: str):
                 field_coverage[f"high_in_{nutrient_label}"] += 1
 
         # Calorie classification
-        cal_per_serving = safe_float(row.get("Calories_per_serving"))
-        if cal_per_serving is not None:
+        cal = safe_float(row.get("Calories_per_serving"))
+        if cal is not None:
             for label, (low, high) in CALORIE_THRESHOLDS.items():
-                if low <= cal_per_serving < high:
+                if low <= cal < high:
                     triples.add((name, "IS", label))
                     field_coverage[label] += 1
                     break
 
-        # ── Health Functions (text → short labels) ────────────────
+        # ── Health Functions (text → short labels, from mined config) ─
         hf_text = str(row.get("HealthFunctions", ""))
-        health_labels = extract_health_functions_from_text(hf_text)
+        health_labels = extract_health_functions(hf_text, health_map)
         if health_labels:
             field_coverage["health_functions"] += 1
         for label in health_labels:
             triples.add((name, "HAS_HEALTH_FUNCTION", label))
 
-        # ── Micronutrients (text → nutrient entities) ─────────────
+        # ── Micronutrients (text → normalized nutrient entities) ──
         micro_text = str(row.get("MicronutrientHealthFunctions", ""))
-        micronutrients = extract_micronutrients_from_text(micro_text)
+        micronutrients = extract_micronutrients(micro_text, micro_map, nutrient_normalize)
         if micronutrients:
             field_coverage["micronutrients"] += 1
         for nutrient in micronutrients:
@@ -450,25 +352,34 @@ def extract_triples_from_csv(input_path: str, output_path: str):
         if recipe_count % 50000 == 0:
             print(f"  Processed {recipe_count:,} recipes, {len(triples):,} triples so far...")
 
-    # ── Substitution triples (curated, not from CSV) ──────────────
+    # ── Substitution triples (from mined config) ──────────────────
     print(f"\nAdding substitution triples...")
     sub_count = 0
-    for ingredient, subs in SUBSTITUTIONS.items():
+    for ingredient, subs in substitutions.items():
         for sub in subs:
-            triples.add((ingredient, "SUBSTITUTES_FOR", sub))
-            triples.add((sub, "SUBSTITUTES_FOR", ingredient))
-            sub_count += 2
+            # Normalize both sides
+            ing_norm = ingredient_normalize.get(ingredient, ingredient)
+            sub_norm = ingredient_normalize.get(sub, sub)
+            if ing_norm != sub_norm:  # don't self-substitute
+                triples.add((ing_norm, "SUBSTITUTES_FOR", sub_norm))
+                triples.add((sub_norm, "SUBSTITUTES_FOR", ing_norm))
+                sub_count += 2
 
-    # ── Ailment → Micronutrient triples (curated) ─────────────────
+    # ── Ailment → Micronutrient triples (from mined config) ───────
     print(f"Adding ailment → micronutrient triples...")
     ailment_count = 0
-    for ailment, info in AILMENT_NUTRIENT_MAP.items():
-        for nutrient in info["needs"]:
-            triples.add((ailment, "BENEFITS_FROM", nutrient))
-            ailment_count += 1
-        for nutrient in info["avoid"]:
-            triples.add((ailment, "SHOULD_AVOID", nutrient))
-            ailment_count += 1
+    for ailment, info in ailment_map.items():
+        for nutrient in info.get("needs", []):
+            # Normalize nutrient name
+            canonical = nutrient_normalize.get(nutrient, nutrient)
+            if canonical:
+                triples.add((ailment, "BENEFITS_FROM", canonical))
+                ailment_count += 1
+        for nutrient in info.get("avoid", []):
+            canonical = nutrient_normalize.get(nutrient, nutrient)
+            if canonical:
+                triples.add((ailment, "SHOULD_AVOID", canonical))
+                ailment_count += 1
 
     # ── Write output ──────────────────────────────────────────────
     triples_list = sorted(triples, key=lambda t: (t[1], t[0], t[2]))
@@ -507,25 +418,26 @@ def extract_triples_from_csv(input_path: str, output_path: str):
 
     print(f"\n  Substitution triples: {sub_count:,}")
     print(f"  Ailment triples:      {ailment_count:,}")
+
+    using_mined = os.path.exists(config_path)
+    if using_mined:
+        print(f"\n  Config source: {config_path} (mined)")
+    else:
+        print(f"\n  Config source: built-in fallbacks (run mine_knowledge.py for better results)")
+
     print(f"\n  Output: {output_path}")
     print(f"\n  Next step:")
     print(f"    python train_and_infer.py train --triples {output_path} --epochs 300 --dim 256")
 
 
 def chunked_load(input_path: str, chunksize: int = 50000):
-    """
-    Fallback: Load CSV in chunks for very large files.
-    Concatenates all chunks into a single DataFrame.
-    """
+    """Fallback: Load CSV in chunks for very large files."""
     import pandas as pd
 
     chunks = []
     total = 0
     for chunk in pd.read_csv(
-        input_path,
-        dtype=str,
-        on_bad_lines="skip",
-        engine="python",
+        input_path, dtype=str, on_bad_lines="skip", engine="python",
         chunksize=chunksize,
     ):
         chunks.append(chunk)
@@ -536,29 +448,24 @@ def chunked_load(input_path: str, chunksize: int = 50000):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  SECTION 8: CLI
+#  CLI
 # ══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="VitalBites: CSV → Knowledge Graph Triples",
+        description="VitalBites: CSV → Knowledge Graph Triples (v2)",
         epilog="""
 Full pipeline:
+    python mine_knowledge.py all --input df_foodcom_recipes_filtered.csv --api-key sk-ant-...
     python csv_to_triples_vitalbites.py --input df_foodcom_recipes_filtered.csv
     python train_and_infer.py train --triples triples.tsv --epochs 300 --dim 256
     python train_and_infer.py recommend --ailment "anemia" --top 10
         """,
     )
-    parser.add_argument(
-        "--input",
-        default="df_foodcom_recipes_filtered.csv",
-        help="Input CSV path",
-    )
-    parser.add_argument(
-        "--output",
-        default="triples.tsv",
-        help="Output triples TSV path",
-    )
+    parser.add_argument("--input", default="df_foodcom_recipes_filtered.csv", help="Input CSV")
+    parser.add_argument("--output", default="triples.tsv", help="Output triples TSV")
+    parser.add_argument("--config", default="mined_config.json", help="Mined config JSON path")
     args = parser.parse_args()
 
-    extract_triples_from_csv(args.input, args.output)
+    extract_triples_from_csv(args.input, args.output, args.config)
+

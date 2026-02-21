@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { login } from '../services/api';
+import Logo from '../components/Logo';
 import '../styles.css';
 
 function Login() {
@@ -27,7 +28,8 @@ function Login() {
 
     try {
       await login(email, password);
-      navigate('/dashboard');
+      const userId = localStorage.getItem('userId');
+      navigate(userId ? `/u/${userId}/dashboard` : '/dashboard');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -36,7 +38,13 @@ function Login() {
   };
 
   return (
-    <div className="container">
+    <div className="container login-bg">
+      <div className="brand-header">
+        <Link to="/">
+          <Logo height={140} />
+        </Link>
+        <div className="brand-tagline">Smart meal planning for your health</div>
+      </div>
       <div className="card">
         <h1 className="title">Welcome Back</h1>
         <p className="subtitle">Sign in to get your personalized recipes</p>

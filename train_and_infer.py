@@ -1,40 +1,383 @@
 """
-RotatE Knowledge Graph: Training + Inference Pipeline
-=====================================================
-This script does two things:
-  1. TRAIN  — Takes triples.tsv → trains RotatE → saves model + embeddings
-  2. INFER  — Loads trained model → answers queries against the knowledge graph
+RotatE Knowledge Graph: Training + Inference Pipeline (v2)
+==========================================================
+Integrates with mined_config.json produced by mine_knowledge.py.
+Supports loading config and triples from S3 URLs or HTTP(S) URLs.
 
-The key insight: after training, every entity (recipe, ingredient, nutrient,
-ailment) and every relation (CONTAINS_INGREDIENT, PROVIDES, BENEFITS_FROM, etc.)
-lives in a complex vector space. Inference is just geometry — rotating and
-measuring distances in that space.
+Changes from v1:
+  - Loads mined_config.json for entity metadata (descriptions, types, normalization)
+  - Nutrient and ailment nodes have human-readable descriptions
+  - Entity type awareness: knows which entities are recipes vs ingredients vs nutrients
+  - Ingredient normalization: queries are normalized before lookup
+  - Substitution-aware inference: can find substitutes via the graph
+  - S3/URL support: --config and --triples accept URLs (auto-downloads + caches)
+  - New commands: ailments, nutrients, substitutes, describe
 
 Usage:
-    # Step 1: Train (do this once, takes minutes on CPU, seconds on GPU)
+    # Train with local files
     python train_and_infer.py train --triples triples.tsv --epochs 300 --dim 256
 
-    # Step 2: Infer (do this as many times as you want)
-    python train_and_infer.py similar   --recipe "Chicken Biryani" --top 10
-    python train_and_infer.py recommend --ailment "anemia" --top 10
-    python train_and_infer.py predict   --head "Chicken Biryani" --relation "PROVIDES" --top 10
-    python train_and_infer.py explore   --entity "iron"
+    # Train with S3 URLs (auto-downloads)
+    python train_and_infer.py train \\
+        --triples https://your-bucket.s3.amazonaws.com/vitalbites/triples.tsv \\
+        --epochs 300 --dim 256
+
+    # Inference with S3 config
+    python train_and_infer.py recommend --ailment anemia --top 10 \\
+        --config https://your-bucket.s3.amazonaws.com/vitalbites/mined_config.json
+
+    # Also supports s3:// protocol (requires boto3)
+    python train_and_infer.py train \\
+        --triples s3://your-bucket/vitalbites/triples.tsv \\
+        --config s3://your-bucket/vitalbites/mined_config.json
+
+    # Standard inference
+    python train_and_infer.py recommend  --ailment anemia --top 10
+    python train_and_infer.py similar    --recipe "Biryani" --top 10
+    python train_and_infer.py ailments
+    python train_and_infer.py nutrients
+    python train_and_infer.py substitutes --ingredient butter
+    python train_and_infer.py describe    --entity iron
 
 Requirements:
     pip install pykeen torch pandas numpy
+    pip install boto3   (only if using s3:// URLs)
 
-Author: Brian / LeeroyChainkins AI
+Author: Brian / LeeroyChainkins AI — VitalBites Project
 """
 
 import argparse
 import json
 import os
+import re
 import sys
+import urllib.request
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import torch
+
+
+# ══════════════════════════════════════════════════════════════════
+#  S3 / URL DOWNLOAD HELPER
+# ══════════════════════════════════════════════════════════════════
+
+# Track files downloaded from URLs so we can clean them up after training
+_downloaded_files = set()
+
+
+def download_if_url(path_or_url: str, local_name: str = None) -> str:
+    """
+    If path_or_url is a URL (http/https/s3), download to local file and return local path.
+    If it's already a local path, return as-is.
+    Downloaded files are tracked for cleanup via cleanup_downloads().
+    """
+    if not path_or_url:
+        return path_or_url
+
+    # Already a local file
+    if not path_or_url.startswith(("http://", "https://", "s3://")):
+        return path_or_url
+
+    # Determine local filename
+    if local_name is None:
+        local_name = path_or_url.rstrip("/").split("/")[-1].split("?")[0]
+        if not local_name:
+            local_name = "downloaded_file"
+
+    # Skip download if already exists locally
+    if os.path.exists(local_name):
+        file_size = os.path.getsize(local_name)
+        if file_size > 0:
+            print(f"  Using cached {local_name} ({file_size:,} bytes)")
+            _downloaded_files.add(local_name)
+            return local_name
+
+    # S3 native URL (s3://bucket/key)
+    if path_or_url.startswith("s3://"):
+        try:
+            import boto3
+        except ImportError:
+            print("ERROR: boto3 required for s3:// URLs. Install with: pip install boto3")
+            sys.exit(1)
+
+        parts = path_or_url.replace("s3://", "").split("/", 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else ""
+
+        print(f"  Downloading s3://{bucket}/{key} → {local_name}...")
+        s3 = boto3.client("s3")
+        s3.download_file(bucket, key, local_name)
+        print(f"  Downloaded {os.path.getsize(local_name):,} bytes")
+        _downloaded_files.add(local_name)
+        return local_name
+
+    # HTTP(S) URL (including S3 pre-signed or public URLs)
+    print(f"  Downloading {path_or_url}")
+    print(f"    → {local_name}...")
+    urllib.request.urlretrieve(path_or_url, local_name)
+    print(f"  Downloaded {os.path.getsize(local_name):,} bytes")
+    _downloaded_files.add(local_name)
+    return local_name
+
+
+def cleanup_downloads():
+    """Remove all files that were downloaded from URLs during this session."""
+    if not _downloaded_files:
+        return
+    print(f"\n  Cleaning up {len(_downloaded_files)} downloaded file(s)...")
+    for fpath in list(_downloaded_files):
+        try:
+            if os.path.exists(fpath):
+                size = os.path.getsize(fpath)
+                os.remove(fpath)
+                print(f"    Removed {fpath} ({size:,} bytes)")
+            _downloaded_files.discard(fpath)
+        except OSError as e:
+            print(f"    WARNING: Could not remove {fpath}: {e}")
+
+
+def upload_to_s3(local_path: str, s3_uri: str):
+    """Upload a local file or directory to S3."""
+    import boto3
+
+    parts = s3_uri.replace("s3://", "").split("/", 1)
+    bucket = parts[0]
+    prefix = parts[1] if len(parts) > 1 else ""
+
+    s3 = boto3.client("s3")
+
+    if os.path.isdir(local_path):
+        file_count = 0
+        for root, dirs, files in os.walk(local_path):
+            for fname in files:
+                local_file = os.path.join(root, fname)
+                rel_path = os.path.relpath(local_file, local_path)
+                s3_key = f"{prefix}/{rel_path}" if prefix else rel_path
+                s3.upload_file(local_file, bucket, s3_key)
+                file_count += 1
+        print(f"  Uploaded {file_count} files to s3://{bucket}/{prefix}/")
+    else:
+        s3_key = f"{prefix}/{os.path.basename(local_path)}" if prefix else os.path.basename(local_path)
+        s3.upload_file(local_path, bucket, s3_key)
+        print(f"  Uploaded {local_path} to s3://{bucket}/{s3_key}")
+
+
+def detect_sagemaker() -> dict | None:
+    """
+    Detect if running inside a SageMaker Training Job.
+    Returns environment info dict or None if not in SageMaker.
+
+    SageMaker sets these environment variables:
+      SM_MODEL_DIR       — where to save model artifacts (copied to S3 after job)
+      SM_CHANNEL_TRAINING — where input data is mounted
+      SM_OUTPUT_DATA_DIR  — additional output artifacts
+      SM_NUM_GPUS        — number of GPUs available
+    """
+    sm_model_dir = os.environ.get("SM_MODEL_DIR")
+    if not sm_model_dir:
+        return None
+
+    env = {
+        "model_dir": sm_model_dir,
+        "training_dir": os.environ.get("SM_CHANNEL_TRAINING", "/opt/ml/input/data/training"),
+        "config_dir": os.environ.get("SM_CHANNEL_CONFIG", "/opt/ml/input/data/config"),
+        "output_dir": os.environ.get("SM_OUTPUT_DATA_DIR", "/opt/ml/output/data"),
+        "num_gpus": int(os.environ.get("SM_NUM_GPUS", "0")),
+    }
+
+    print("=" * 70)
+    print("SAGEMAKER TRAINING ENVIRONMENT DETECTED")
+    print("=" * 70)
+    for k, v in env.items():
+        print(f"  {k}: {v}")
+
+    return env
+
+
+# ══════════════════════════════════════════════════════════════════
+#  ENTITY METADATA CATALOG
+# ══════════════════════════════════════════════════════════════════
+
+class EntityCatalog:
+    """
+    Loads mined_config.json and provides:
+      - Entity type classification (recipe, ingredient, nutrient, ailment, etc.)
+      - Human-readable descriptions for nutrients and ailments
+      - Ingredient normalization (raw name → canonical)
+      - Nutrient normalization (raw name → canonical)
+      - Substitution lookup
+      - Ailment → nutrient needs/avoid mapping
+    """
+
+    def __init__(self, config_path: str = "mined_config.json"):
+        self.config = {}
+        self.ingredient_normalize = {}
+        self.nutrient_normalize = {}
+        self.substitutions = {}
+        self.ailment_map = {}
+        self.nutrient_descriptions = {}
+        self.ailment_descriptions = {}
+        self.health_labels = {}
+        self.micro_to_nutrient = {}
+
+        # Download from URL if needed
+        config_path = download_if_url(config_path, "mined_config.json")
+
+        if os.path.exists(config_path):
+            print(f"  Loading entity catalog from {config_path}...")
+            with open(config_path) as f:
+                self.config = json.load(f)
+
+            self.ingredient_normalize = self.config.get("INGREDIENT_NORMALIZE", {})
+            self.nutrient_normalize = self.config.get("NUTRIENT_NORMALIZE", {})
+            self.substitutions = self.config.get("SUBSTITUTIONS", {})
+            self.ailment_map = self.config.get("AILMENT_NUTRIENT_MAP", {})
+            self.health_labels = self.config.get("HEALTH_DESCRIPTION_TO_LABEL", {})
+            self.micro_to_nutrient = self.config.get("MICRO_DESCRIPTION_TO_NUTRIENT", {})
+
+            self._build_nutrient_descriptions()
+            self._build_ailment_descriptions()
+
+            print(f"    Ingredients normalizable: {len(self.ingredient_normalize)}")
+            print(f"    Nutrients normalizable:   {len(self.nutrient_normalize)}")
+            print(f"    Substitutions loaded:     {len(self.substitutions)}")
+            print(f"    Ailments loaded:          {len(self.ailment_map)}")
+        else:
+            print(f"  NOTE: {config_path} not found. Running without entity metadata.")
+            print(f"         Descriptions, normalization, and type filtering unavailable.")
+
+    def _build_nutrient_descriptions(self):
+        """Build human-readable descriptions for each nutrient from the mined data."""
+        nutrient_to_descs = {}
+        for desc_text, nutrient_name in self.micro_to_nutrient.items():
+            canonical = self.normalize_nutrient(nutrient_name)
+            if canonical not in nutrient_to_descs:
+                nutrient_to_descs[canonical] = []
+            clean = desc_text.strip().rstrip(".")
+            if clean.startswith("it "):
+                clean = clean[3:]
+            if clean.startswith("is "):
+                clean = clean[3:]
+            nutrient_to_descs[canonical].append(clean)
+        self.nutrient_descriptions = nutrient_to_descs
+
+    def _build_ailment_descriptions(self):
+        """Build human-readable descriptions for each ailment."""
+        for ailment, info in self.ailment_map.items():
+            needs = info.get("needs", [])
+            avoid = info.get("avoid", [])
+            needs_canonical = [self.normalize_nutrient(n) for n in needs]
+            avoid_canonical = [self.normalize_nutrient(n) for n in avoid]
+            parts = []
+            if needs_canonical:
+                parts.append(f"Benefits from: {', '.join(needs_canonical)}")
+            if avoid_canonical:
+                parts.append(f"Should limit: {', '.join(avoid_canonical)}")
+            self.ailment_descriptions[ailment] = "; ".join(parts)
+
+    def normalize_ingredient(self, name: str) -> str:
+        """Normalize an ingredient name to its canonical form."""
+        name_lower = name.lower().strip()
+        if name_lower in self.ingredient_normalize:
+            return self.ingredient_normalize[name_lower]
+        simplified = re.sub(r"\b(fresh|dried|ground|chopped|minced|frozen)\b", "", name_lower).strip()
+        simplified = re.sub(r"\s+", " ", simplified)
+        if simplified in self.ingredient_normalize:
+            return self.ingredient_normalize[simplified]
+        return name_lower.replace(" ", "_")
+
+    def normalize_nutrient(self, name: str) -> str:
+        """Normalize a nutrient name to its canonical form."""
+        if name in self.nutrient_normalize:
+            result = self.nutrient_normalize[name]
+            return result if result else name
+        return name
+
+    def get_nutrient_description(self, nutrient: str) -> str:
+        """Get a human-readable description for a nutrient."""
+        canonical = self.normalize_nutrient(nutrient)
+        descs = self.nutrient_descriptions.get(canonical, [])
+        if not descs:
+            descs = self.nutrient_descriptions.get(nutrient, [])
+        return descs[0] if descs else ""
+
+    def get_ailment_description(self, ailment: str) -> str:
+        """Get a human-readable description for an ailment."""
+        return self.ailment_descriptions.get(ailment, "")
+
+    def get_ailment_nutrients(self, ailment: str) -> dict:
+        """Get the needs/avoid nutrient lists for an ailment."""
+        info = self.ailment_map.get(ailment, {})
+        return {
+            "needs": [self.normalize_nutrient(n) for n in info.get("needs", [])],
+            "avoid": [self.normalize_nutrient(n) for n in info.get("avoid", [])],
+        }
+
+    def get_substitutes(self, ingredient: str) -> list[str]:
+        """Get known substitutes for an ingredient."""
+        canonical = self.normalize_ingredient(ingredient)
+        if canonical in self.substitutions:
+            return self.substitutions[canonical]
+        if ingredient in self.substitutions:
+            return self.substitutions[ingredient]
+        return []
+
+    def classify_entity(self, entity_name: str) -> str:
+        """Classify an entity into a type."""
+        if entity_name in self.ailment_map:
+            return "ailment"
+        all_nutrients = set(self.nutrient_normalize.keys()) | set(
+            v for v in self.nutrient_normalize.values() if v
+        )
+        if entity_name in all_nutrients:
+            return "nutrient"
+        if entity_name in ("protein", "fiber", "fat", "saturated_fat", "sugar",
+                           "sodium_high", "low-calorie", "moderate-calorie", "high-calorie"):
+            return "macro_label"
+        all_health_labels = set(self.health_labels.values()) if self.health_labels else set()
+        if entity_name in all_health_labels:
+            return "health_function"
+        all_ingredients = set(self.ingredient_normalize.keys()) | set(self.ingredient_normalize.values())
+        if entity_name in all_ingredients or entity_name.replace("_", " ") in all_ingredients:
+            return "ingredient"
+        if entity_name and entity_name[0].isupper():
+            return "recipe"
+        return "unknown"
+
+    def describe_entity(self, entity_name: str) -> dict:
+        """Get full metadata about any entity."""
+        entity_type = self.classify_entity(entity_name)
+        info = {"name": entity_name, "type": entity_type}
+
+        if entity_type == "nutrient":
+            desc = self.get_nutrient_description(entity_name)
+            if desc:
+                info["description"] = desc
+            helped_ailments = []
+            for ailment, adata in self.ailment_map.items():
+                needs = [self.normalize_nutrient(n) for n in adata.get("needs", [])]
+                if entity_name in needs or self.normalize_nutrient(entity_name) in needs:
+                    helped_ailments.append(ailment)
+            if helped_ailments:
+                info["helps_with"] = helped_ailments
+
+        elif entity_type == "ailment":
+            desc = self.get_ailment_description(entity_name)
+            if desc:
+                info["description"] = desc
+            nutrients = self.get_ailment_nutrients(entity_name)
+            if nutrients["needs"]:
+                info["needs_nutrients"] = nutrients["needs"]
+            if nutrients["avoid"]:
+                info["avoid_nutrients"] = nutrients["avoid"]
+
+        elif entity_type == "ingredient":
+            subs = self.get_substitutes(entity_name)
+            if subs:
+                info["substitutes"] = subs
+
+        return info
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -50,30 +393,22 @@ def train(
     lr: float = 1e-3,
     num_negs: int = 64,
     seed: int = 42,
+    upload_s3: str = None,
+    config_path: str = None,
 ):
     """
     Train RotatE on the extracted triples.
 
-    What happens during training:
-    ─────────────────────────────
-    1. Each entity gets a complex vector:  e ∈ ℂ^d
-    2. Each relation gets a rotation vector: r ∈ ℂ^d  where |r_i| = 1
-    3. For a true triple (h, r, t), we want:  h ∘ r ≈ t
-       (element-wise rotation of head by relation should land near tail)
-    4. Loss function pushes true triples to score high,
-       random corrupted triples (negative samples) to score low
-    5. After training, the geometry encodes all the knowledge:
-       - Similar recipes cluster together
-       - Ingredients that appear in similar contexts cluster
-       - Relations capture typed transformations
+    SageMaker mode:
+      When running inside a SageMaker Training Job, automatically:
+        - Reads triples from SM_CHANNEL_TRAINING
+        - Reads config from SM_CHANNEL_CONFIG
+        - Saves model to SM_MODEL_DIR (auto-uploaded to S3 by SageMaker)
 
-    Hyperparameter guidance:
-    ────────────────────────
-    - embedding_dim: 128 for <10K triples, 256 for 10K-1M, 512 for >1M
-    - epochs: 200-500 is typical. Watch validation MRR plateau.
-    - num_negs: more = better but slower. 32-128 is the sweet spot.
-    - lr: 1e-3 for Adam is usually fine. Reduce if loss oscillates.
-    - batch_size: larger = faster but noisier. 256-1024 for most datasets.
+    Args:
+        upload_s3: Optional S3 URI to upload trained model after training.
+                   e.g., "s3://vitalbites/models/latest"
+        config_path: Path to mined_config.json — copied into model dir for portability.
     """
     from pykeen.pipeline import pipeline
     from pykeen.triples import TriplesFactory
@@ -82,67 +417,71 @@ def train(
     print("TRAINING RotatE KNOWLEDGE GRAPH EMBEDDINGS")
     print("=" * 70)
 
-    # ── Load and split triples ────────────────────────────────────
+    # ── SageMaker environment detection ───────────────────────────
+    sm_env = detect_sagemaker()
+    if sm_env:
+        # Override paths with SageMaker directories
+        triples_candidates = [
+            os.path.join(sm_env["training_dir"], "triples.tsv"),
+            os.path.join(sm_env["training_dir"], os.path.basename(triples_path)),
+        ]
+        for candidate in triples_candidates:
+            if os.path.exists(candidate):
+                triples_path = candidate
+                break
+
+        # Config from SageMaker channel
+        config_candidates = [
+            os.path.join(sm_env["config_dir"], "mined_config.json"),
+            os.path.join(sm_env["training_dir"], "mined_config.json"),
+        ]
+        for candidate in config_candidates:
+            if os.path.exists(candidate):
+                config_path = candidate
+                break
+
+        # Save model to SageMaker model dir
+        output_dir = sm_env["model_dir"]
+
+    # ── Download from URL if needed ───────────────────────────────
+    triples_path = download_if_url(triples_path, "triples.tsv")
+
     print(f"\nLoading triples from {triples_path}...")
     tf = TriplesFactory.from_path(triples_path)
     print(f"  Total triples:    {tf.num_triples}")
     print(f"  Unique entities:  {tf.num_entities}")
     print(f"  Unique relations: {tf.num_relations}")
 
-    # 80/10/10 split — stratified by relation type
     training, testing, validation = tf.split([0.8, 0.1, 0.1], random_state=seed)
     print(f"  Training split:   {training.num_triples}")
     print(f"  Validation split: {validation.num_triples}")
     print(f"  Test split:       {testing.num_triples}")
 
-    # ── Train RotatE ──────────────────────────────────────────────
     print(f"\nTraining RotatE (dim={embedding_dim}, epochs={epochs})...")
-    print(f"  This may take a few minutes on CPU.\n")
 
     result = pipeline(
         training=training,
         testing=testing,
         validation=validation,
-
         model="RotatE",
-        model_kwargs={
-            "embedding_dim": embedding_dim,
-        },
-
-        # Training loop: stochastic Local Closed World Assumption
-        # (standard for KGE — assumes unobserved triples are false)
+        model_kwargs={"embedding_dim": embedding_dim},
         training_loop="sLCWA",
-
         training_kwargs={
             "num_epochs": epochs,
             "batch_size": batch_size,
             "checkpoint_name": "checkpoint.pt",
-            "checkpoint_frequency": 50,      # save every 50 epochs
+            "checkpoint_frequency": 50,
             "checkpoint_directory": output_dir,
         },
-
-        # Negative sampling: for each real triple, generate N fake ones
-        # by corrupting either head or tail
         negative_sampler="basic",
-        negative_sampler_kwargs={
-            "num_negs_per_pos": num_negs,
-        },
-
+        negative_sampler_kwargs={"num_negs_per_pos": num_negs},
         optimizer="Adam",
-        optimizer_kwargs={
-            "lr": lr,
-        },
-
-        # Filtered evaluation: when ranking, remove other true triples
-        # from candidates (standard practice, avoids penalizing correct answers)
-        evaluator_kwargs={
-            "filtered": True,
-        },
-
+        optimizer_kwargs={"lr": lr},
+        evaluator_kwargs={"filtered": True},
         random_seed=seed,
     )
 
-    # ── Print evaluation metrics ──────────────────────────────────
+    # Evaluation metrics
     print("\n" + "=" * 70)
     print("TEST SET EVALUATION")
     print("=" * 70)
@@ -154,30 +493,20 @@ def train(
     h10 = metrics.get_metric("both.realistic.hits_at_10")
 
     print(f"  MRR (Mean Reciprocal Rank): {mrr:.4f}")
-    print(f"  Hits@1:                     {h1:.4f}")
-    print(f"  Hits@3:                     {h3:.4f}")
-    print(f"  Hits@10:                    {h10:.4f}")
-    print()
-    print("  Interpretation:")
-    print("    MRR > 0.3  = good for most KG tasks")
-    print("    MRR > 0.5  = very strong")
-    print("    Hits@10    = % of time correct answer is in top 10 predictions")
+    print(f"  Hits@1:  {h1:.4f}    Hits@3:  {h3:.4f}    Hits@10: {h10:.4f}")
 
-    # ── Save model + artifacts ────────────────────────────────────
+    # Save
     os.makedirs(output_dir, exist_ok=True)
     result.save_to_directory(output_dir)
 
-    # Also export entity/relation mappings as readable JSON
     entity_to_id = training.entity_to_id
     relation_to_id = training.relation_to_id
 
     with open(os.path.join(output_dir, "entity_to_id.json"), "w") as f:
         json.dump(entity_to_id, f, indent=2)
-
     with open(os.path.join(output_dir, "relation_to_id.json"), "w") as f:
         json.dump(relation_to_id, f, indent=2)
 
-    # Export embeddings as numpy arrays for fast inference
     model = result.model
     entity_embs = model.entity_representations[0](
         indices=torch.arange(training.num_entities)
@@ -189,11 +518,32 @@ def train(
     np.save(os.path.join(output_dir, "entity_embeddings.npy"), entity_embs)
     np.save(os.path.join(output_dir, "relation_embeddings.npy"), relation_embs)
 
-    print(f"\nModel and artifacts saved to ./{output_dir}/")
-    print(f"  entity_embeddings.npy     shape: {entity_embs.shape}")
-    print(f"  relation_embeddings.npy   shape: {relation_embs.shape}")
-    print(f"  entity_to_id.json         {len(entity_to_id)} entities")
-    print(f"  relation_to_id.json       {len(relation_to_id)} relations")
+    # Copy mined_config.json into model dir for portability
+    if config_path and os.path.exists(config_path):
+        import shutil
+        dest = os.path.join(output_dir, "mined_config.json")
+        if os.path.abspath(config_path) != os.path.abspath(dest):
+            shutil.copy2(config_path, dest)
+            print(f"  Copied {config_path} → {dest}")
+
+    # Save training metrics as JSON for programmatic access
+    metrics_dict = {
+        "mrr": float(mrr), "hits_at_1": float(h1),
+        "hits_at_3": float(h3), "hits_at_10": float(h10),
+        "epochs": epochs, "embedding_dim": embedding_dim,
+        "num_triples": tf.num_triples, "num_entities": tf.num_entities,
+        "num_relations": tf.num_relations,
+    }
+    with open(os.path.join(output_dir, "training_metrics.json"), "w") as f:
+        json.dump(metrics_dict, f, indent=2)
+
+    print(f"\nSaved to ./{output_dir}/")
+    print(f"  Embeddings: {entity_embs.shape} entities, {relation_embs.shape} relations")
+
+    # ── Upload to S3 if requested ─────────────────────────────────
+    if upload_s3:
+        print(f"\nUploading model to {upload_s3}...")
+        upload_to_s3(output_dir, upload_s3)
 
     return result
 
@@ -204,30 +554,13 @@ def train(
 
 class KnowledgeGraphInference:
     """
-    Inference engine for a trained RotatE knowledge graph.
-
-    This loads the saved embeddings and mappings and provides
-    several query methods. No GPU needed for inference — it's
-    just numpy vector math.
-
-    How RotatE inference works:
-    ──────────────────────────
-    Given a query like (Chicken Biryani, PROVIDES, ???):
-      1. Look up the head embedding:     h = entity_embs["Chicken Biryani"]
-      2. Look up the relation embedding: r = relation_embs["PROVIDES"]
-      3. Compute the predicted tail:     predicted_t = h ∘ r  (complex rotation)
-      4. Score ALL entities by distance:  score(e) = ||h ∘ r - e||
-      5. Rank by score (lower = better match)
-      6. Return top-K entities
-
-    For (???, BENEFITS_FROM, iron):
-      Same idea but solve for the head: predicted_h = t ∘ conj(r)
+    Inference engine with entity catalog integration.
+    Provides type-aware filtering, normalization, and descriptions.
     """
 
-    def __init__(self, model_dir: str = "trained_model"):
+    def __init__(self, model_dir: str = "trained_model", config_path: str = "mined_config.json"):
         print(f"Loading trained model from {model_dir}...")
 
-        # Load mappings
         with open(os.path.join(model_dir, "entity_to_id.json")) as f:
             self.entity_to_id = json.load(f)
         with open(os.path.join(model_dir, "relation_to_id.json")) as f:
@@ -236,351 +569,303 @@ class KnowledgeGraphInference:
         self.id_to_entity = {v: k for k, v in self.entity_to_id.items()}
         self.id_to_relation = {v: k for k, v in self.relation_to_id.items()}
 
-        # Load embeddings
         self.entity_embs = np.load(os.path.join(model_dir, "entity_embeddings.npy"))
         self.relation_embs = np.load(os.path.join(model_dir, "relation_embeddings.npy"))
 
-        # RotatE uses complex embeddings stored as [real, imag] concatenated
-        # Split them back into complex numbers for rotation math
         dim = self.entity_embs.shape[1] // 2
-        self.entity_complex = (
-            self.entity_embs[:, :dim] + 1j * self.entity_embs[:, dim:]
-        )
-        self.relation_complex = (
-            self.relation_embs[:, :dim] + 1j * self.relation_embs[:, dim:]
-        )
+        self.entity_complex = self.entity_embs[:, :dim] + 1j * self.entity_embs[:, dim:]
+        self.relation_complex = self.relation_embs[:, :dim] + 1j * self.relation_embs[:, dim:]
 
-        print(f"  {len(self.entity_to_id)} entities, "
-              f"{len(self.relation_to_id)} relations, "
-              f"dim={dim}")
+        print(f"  {len(self.entity_to_id)} entities, {len(self.relation_to_id)} relations, dim={dim}")
+
+        # Load catalog
+        self.catalog = EntityCatalog(config_path)
+        self._build_type_index()
+
+    def _build_type_index(self):
+        """Pre-classify all entities for fast type filtering."""
+        self.entities_by_type = {}
+        for entity_name in self.entity_to_id:
+            etype = self.catalog.classify_entity(entity_name)
+            if etype not in self.entities_by_type:
+                self.entities_by_type[etype] = set()
+            self.entities_by_type[etype].add(entity_name)
+
+        print(f"  Entity type breakdown:")
+        for etype, entities in sorted(self.entities_by_type.items(), key=lambda x: -len(x[1])):
+            if entities:
+                print(f"    {etype:20s} {len(entities):>8,}")
+
+    def resolve_entity(self, name: str) -> str | None:
+        """
+        Resolve user input to a graph entity.
+        Tries: exact → normalized ingredient → normalized nutrient → case variants → fuzzy.
+        """
+        if name in self.entity_to_id:
+            return name
+
+        # Normalized forms
+        for variant in [
+            self.catalog.normalize_ingredient(name),
+            self.catalog.normalize_nutrient(name),
+            name.replace(" ", "_"),
+            name.replace("_", " "),
+            name.lower(),
+            name.lower().replace(" ", "_"),
+            name.title(),
+        ]:
+            if variant and variant in self.entity_to_id:
+                return variant
+
+        # Fuzzy substring match
+        name_lower = name.lower()
+        matches = [e for e in self.entity_to_id if name_lower in e.lower()]
+        if len(matches) == 1:
+            return matches[0]
+        if 1 < len(matches) <= 5:
+            print(f"  Ambiguous '{name}'. Did you mean:")
+            for m in matches:
+                print(f"    - {m}")
+            return None
+
+        print(f"  WARNING: '{name}' not found in knowledge graph.")
+        return None
+
+    # ── Core scoring ──────────────────────────────────────────────
 
     def _score_all_tails(self, head_name: str, relation_name: str) -> np.ndarray:
-        """
-        Given (head, relation, ???), score every entity as a potential tail.
-        Lower score = better match.
-
-        Math: score(t) = ||h ∘ r - t||  (L1 norm in complex space)
-        """
-        h_id = self.entity_to_id[head_name]
-        r_id = self.relation_to_id[relation_name]
-
-        h = self.entity_complex[h_id]      # shape: (dim,)
-        r = self.relation_complex[r_id]     # shape: (dim,)
-
-        # Rotate head by relation
-        predicted_tail = h * r              # element-wise complex multiplication
-
-        # Distance to every entity
-        diffs = self.entity_complex - predicted_tail  # shape: (num_entities, dim)
-        scores = np.sum(np.abs(diffs), axis=1)        # L1 distance
-
-        return scores
+        h = self.entity_complex[self.entity_to_id[head_name]]
+        r = self.relation_complex[self.relation_to_id[relation_name]]
+        diffs = self.entity_complex - (h * r)
+        return np.sum(np.abs(diffs), axis=1)
 
     def _score_all_heads(self, relation_name: str, tail_name: str) -> np.ndarray:
-        """
-        Given (???, relation, tail), score every entity as a potential head.
+        t = self.entity_complex[self.entity_to_id[tail_name]]
+        r = self.relation_complex[self.relation_to_id[relation_name]]
+        diffs = self.entity_complex - (t * np.conj(r))
+        return np.sum(np.abs(diffs), axis=1)
 
-        Math: score(h) = ||h - t ∘ conj(r)||
-              (since h ∘ r = t  →  h = t ∘ r⁻¹  →  h = t ∘ conj(r))
-        """
-        t_id = self.entity_to_id[tail_name]
-        r_id = self.relation_to_id[relation_name]
+    # ── Link prediction ───────────────────────────────────────────
 
-        t = self.entity_complex[t_id]
-        r = self.relation_complex[r_id]
-
-        # Inverse rotation: multiply tail by conjugate of relation
-        predicted_head = t * np.conj(r)
-
-        diffs = self.entity_complex - predicted_head
-        scores = np.sum(np.abs(diffs), axis=1)
-
-        return scores
-
-    # ──────────────────────────────────────────────────────────────
-    #  QUERY 1: Link Prediction
-    #  "What does Chicken Biryani PROVIDE?"
-    #  "What CONTAINS_INGREDIENT garlic?"
-    # ──────────────────────────────────────────────────────────────
-    def predict_tail(
-        self, head: str, relation: str, top_k: int = 10,
-        filter_entities: set = None
-    ) -> list[tuple[str, float]]:
-        """
-        Predict: (head, relation, ???) → ranked list of tail candidates.
-
-        Args:
-            head:     Entity name (e.g., "Chicken Biryani")
-            relation: Relation name (e.g., "PROVIDES")
-            top_k:    Number of results
-            filter_entities: Optional set of entity names to restrict results to
-
-        Returns:
-            List of (entity_name, score) tuples, sorted by score ascending (best first)
-        """
-        if head not in self.entity_to_id:
-            print(f"  WARNING: '{head}' not found in knowledge graph.")
+    def predict_tail(self, head: str, relation: str, top_k: int = 10,
+                     filter_types: set = None) -> list[tuple[str, float]]:
+        head_r = self.resolve_entity(head)
+        if not head_r or relation not in self.relation_to_id:
             return []
-        if relation not in self.relation_to_id:
-            print(f"  WARNING: '{relation}' not found in relations.")
+        scores = self._score_all_tails(head_r, relation)
+        return self._rank(scores, exclude={head_r}, filter_types=filter_types, top_k=top_k)
+
+    def predict_head(self, relation: str, tail: str, top_k: int = 10,
+                     filter_types: set = None) -> list[tuple[str, float]]:
+        tail_r = self.resolve_entity(tail)
+        if not tail_r or relation not in self.relation_to_id:
             return []
+        scores = self._score_all_heads(relation, tail_r)
+        return self._rank(scores, exclude={tail_r}, filter_types=filter_types, top_k=top_k)
 
-        scores = self._score_all_tails(head, relation)
-
-        # Rank
+    def _rank(self, scores: np.ndarray, exclude: set = None,
+              filter_types: set = None, top_k: int = 10) -> list[tuple[str, float]]:
         ranked_ids = np.argsort(scores)
         results = []
         for eid in ranked_ids:
             name = self.id_to_entity[eid]
-            if name == head:
-                continue  # skip self
-            if filter_entities and name not in filter_entities:
+            if exclude and name in exclude:
                 continue
+            if filter_types:
+                if self.catalog.classify_entity(name) not in filter_types:
+                    continue
             results.append((name, float(scores[eid])))
             if len(results) >= top_k:
                 break
-
         return results
 
-    def predict_head(
-        self, relation: str, tail: str, top_k: int = 10,
-        filter_entities: set = None
-    ) -> list[tuple[str, float]]:
-        """
-        Predict: (???, relation, tail) → ranked list of head candidates.
+    # ── Entity similarity ─────────────────────────────────────────
 
-        Example: (???, BENEFITS_FROM, iron) → [anemia, ...]
-        """
-        if tail not in self.entity_to_id:
-            print(f"  WARNING: '{tail}' not found in knowledge graph.")
+    def find_similar(self, entity: str, top_k: int = 10,
+                     filter_types: set = None) -> list[tuple[str, float]]:
+        entity_r = self.resolve_entity(entity)
+        if not entity_r:
             return []
-        if relation not in self.relation_to_id:
-            print(f"  WARNING: '{relation}' not found in relations.")
-            return []
-
-        scores = self._score_all_heads(relation, tail)
-
-        ranked_ids = np.argsort(scores)
-        results = []
-        for eid in ranked_ids:
-            name = self.id_to_entity[eid]
-            if name == tail:
-                continue
-            if filter_entities and name not in filter_entities:
-                continue
-            results.append((name, float(scores[eid])))
-            if len(results) >= top_k:
-                break
-
-        return results
-
-    # ──────────────────────────────────────────────────────────────
-    #  QUERY 2: Entity Similarity
-    #  "What recipes are most similar to Chicken Biryani?"
-    # ──────────────────────────────────────────────────────────────
-    def find_similar(
-        self, entity: str, top_k: int = 10,
-        filter_entities: set = None
-    ) -> list[tuple[str, float]]:
-        """
-        Find entities closest in embedding space (L2 distance).
-
-        This works because RotatE pushes entities that participate
-        in similar relation patterns to similar regions of the space.
-        """
-        if entity not in self.entity_to_id:
-            print(f"  WARNING: '{entity}' not found.")
-            return []
-
-        eid = self.entity_to_id[entity]
-        query_emb = self.entity_embs[eid]
-
-        # L2 distance to all entities
-        diffs = self.entity_embs - query_emb
+        diffs = self.entity_embs - self.entity_embs[self.entity_to_id[entity_r]]
         distances = np.linalg.norm(diffs, axis=1)
+        return self._rank(distances, exclude={entity_r}, filter_types=filter_types, top_k=top_k)
 
-        ranked_ids = np.argsort(distances)
-        results = []
-        for rid in ranked_ids:
-            name = self.id_to_entity[rid]
-            if name == entity:
-                continue
-            if filter_entities and name not in filter_entities:
-                continue
-            results.append((name, float(distances[rid])))
-            if len(results) >= top_k:
-                break
+    # ── Multi-hop ailment recommendation ──────────────────────────
 
-        return results
-
-    # ──────────────────────────────────────────────────────────────
-    #  QUERY 3: Multi-Hop Recommendation
-    #  "I have anemia — what recipes should I eat?"
-    #
-    #  This is the killer feature of the knowledge graph.
-    #  It chains: ailment → BENEFITS_FROM → nutrient ← PROVIDES ← recipe
-    # ──────────────────────────────────────────────────────────────
-    def recommend_for_ailment(
-        self, ailment: str, top_k: int = 10,
-        recipe_names: set = None
-    ) -> list[tuple[str, float, list[str]]]:
-        """
-        Multi-hop inference:
-          ailment → BENEFITS_FROM → nutrients → PROVIDES ← recipes
-
-        Args:
-            ailment:      e.g., "anemia"
-            top_k:        Number of recipes to return
-            recipe_names: Set of all recipe names (to filter results)
-
-        Returns:
-            List of (recipe_name, aggregate_score, [nutrients_provided]) tuples
-        """
-        if ailment not in self.entity_to_id:
-            print(f"  WARNING: '{ailment}' not found.")
+    def recommend_for_ailment(self, ailment: str, top_k: int = 10
+                              ) -> list[tuple[str, float, list[str]]]:
+        """ailment → BENEFITS_FROM → nutrients → PROVIDES ← recipes"""
+        ailment_r = self.resolve_entity(ailment)
+        if not ailment_r:
             return []
 
-        # Step 1: What nutrients does this ailment benefit from?
-        print(f"\n  Step 1: Finding nutrients that help with '{ailment}'...")
-        nutrient_results = self.predict_tail(ailment, "BENEFITS_FROM", top_k=20)
+        known = self.catalog.get_ailment_nutrients(ailment_r)
+        known_needs = known.get("needs", [])
+        known_avoid = known.get("avoid", [])
 
-        # Filter to actual nutrient entities (not recipes, etc.)
-        # We use a heuristic: nutrients are typically short, lowercase names
+        print(f"\n  Ailment: {ailment_r}")
+        desc = self.catalog.get_ailment_description(ailment_r)
+        if desc:
+            print(f"  {desc}")
+
+        # Resolve known nutrients
         nutrients = []
-        for name, score in nutrient_results:
-            # Simple heuristic — in production you'd tag entity types
-            if name[0].islower() and name not in self.relation_to_id:
-                nutrients.append((name, score))
-        nutrients = nutrients[:10]  # top 10 nutrients
+        for nutrient in known_needs:
+            n_resolved = self.resolve_entity(nutrient)
+            if n_resolved:
+                nutrients.append((n_resolved, 0.0))
+                ndesc = self.catalog.get_nutrient_description(nutrient)
+                print(f"    Needs: {nutrient}" + (f" — {ndesc}" if ndesc else ""))
+
+        if known_avoid:
+            for nutrient in known_avoid:
+                print(f"    Avoid: {nutrient}")
+
+        # Supplement with predicted nutrients
+        if len(nutrients) < 5 and "BENEFITS_FROM" in self.relation_to_id:
+            predicted = self.predict_tail(ailment_r, "BENEFITS_FROM", top_k=20,
+                                          filter_types={"nutrient", "macro_label"})
+            existing = {n for n, _ in nutrients}
+            for name, score in predicted:
+                if name not in existing and name not in known_avoid:
+                    nutrients.append((name, score))
+                    if len(nutrients) >= 10:
+                        break
 
         if not nutrients:
             print("  No nutrients found for this ailment.")
             return []
 
-        print(f"  Found nutrients: {[n for n, _ in nutrients]}")
+        print(f"\n  Searching for recipes providing: {[n for n, _ in nutrients]}")
 
-        # Step 2: For each nutrient, find recipes that PROVIDE it
-        print(f"  Step 2: Finding recipes that provide these nutrients...")
-        recipe_scores = {}   # recipe_name → aggregate score
-        recipe_nutrients = {}  # recipe_name → list of nutrients it provides
+        # Find recipes providing these nutrients
+        recipe_scores = {}
+        recipe_nutrients = {}
 
         for nutrient_name, nutrient_score in nutrients:
-            # (???, PROVIDES, nutrient) — which recipes provide this?
-            recipe_results = self.predict_head("PROVIDES", nutrient_name, top_k=50)
-
-            for recipe_name, recipe_score in recipe_results:
-                if recipe_names and recipe_name not in recipe_names:
-                    continue
-
-                # Aggregate: lower total score = better
-                # Weight by how relevant the nutrient is to the ailment
+            results = self.predict_head("PROVIDES", nutrient_name, top_k=100,
+                                        filter_types={"recipe"})
+            for recipe_name, recipe_score in results:
                 combined = recipe_score + nutrient_score
                 if recipe_name not in recipe_scores:
                     recipe_scores[recipe_name] = 0.0
                     recipe_nutrients[recipe_name] = []
-
                 recipe_scores[recipe_name] += combined
                 recipe_nutrients[recipe_name].append(nutrient_name)
 
-        # Step 3: Rank recipes by aggregate score (more nutrients covered = better)
-        # We normalize by number of nutrients to reward breadth
-        final_scores = []
+        final = []
         for recipe_name, total_score in recipe_scores.items():
-            num_nutrients = len(recipe_nutrients[recipe_name])
-            # Lower is better, but more nutrients is better → divide by count
-            normalized = total_score / (num_nutrients ** 1.5)  # reward coverage
-            final_scores.append((
-                recipe_name,
-                normalized,
-                recipe_nutrients[recipe_name]
-            ))
+            n_count = len(recipe_nutrients[recipe_name])
+            normalized = total_score / (n_count ** 1.5)
+            final.append((recipe_name, normalized, recipe_nutrients[recipe_name]))
 
-        final_scores.sort(key=lambda x: x[1])
-        return final_scores[:top_k]
+        final.sort(key=lambda x: x[1])
+        return final[:top_k]
 
-    # ──────────────────────────────────────────────────────────────
-    #  QUERY 4: Entity Exploration
-    #  "Tell me everything about 'iron' in the graph"
-    # ──────────────────────────────────────────────────────────────
+    # ── Entity exploration (with descriptions) ────────────────────
+
     def explore_entity(self, entity: str, top_k: int = 5):
-        """
-        For a given entity, find its most likely connections
-        across ALL relation types in both directions.
-        """
-        if entity not in self.entity_to_id:
-            print(f"  WARNING: '{entity}' not found.")
+        entity_r = self.resolve_entity(entity)
+        if not entity_r:
             return
 
+        info = self.catalog.describe_entity(entity_r)
+
         print(f"\n{'='*60}")
-        print(f"EXPLORING: {entity}")
+        print(f"EXPLORING: {entity_r}")
+        print(f"  Type: {info['type']}")
+        if "description" in info:
+            print(f"  Description: {info['description']}")
+        if "needs_nutrients" in info:
+            print(f"  Needs: {', '.join(info['needs_nutrients'])}")
+        if "avoid_nutrients" in info:
+            print(f"  Avoid: {', '.join(info['avoid_nutrients'])}")
+        if "helps_with" in info:
+            print(f"  Helps with: {', '.join(info['helps_with'])}")
+        if "substitutes" in info:
+            print(f"  Substitutes: {', '.join(info['substitutes'])}")
         print(f"{'='*60}")
 
-        # As tail: (entity, relation, ???) for each relation
-        print(f"\n  Outgoing edges ('{entity}' as head):")
+        print(f"\n  Outgoing edges:")
         for rel_name in self.relation_to_id:
-            results = self.predict_tail(entity, rel_name, top_k=top_k)
+            results = self.predict_tail(entity_r, rel_name, top_k=top_k)
             if results:
-                top_str = ", ".join(f"{n} ({s:.2f})" for n, s in results[:3])
-                print(f"    --[{rel_name}]--> {top_str}")
+                items = []
+                for n, s in results[:3]:
+                    ndesc = self.catalog.get_nutrient_description(n)
+                    if ndesc and len(ndesc) < 60:
+                        items.append(f"{n} ({s:.2f}) [{ndesc}]")
+                    else:
+                        items.append(f"{n} ({s:.2f})")
+                print(f"    --[{rel_name}]--> {', '.join(items)}")
 
-        # As head: (???, relation, entity) for each relation
-        print(f"\n  Incoming edges ('{entity}' as tail):")
+        print(f"\n  Incoming edges:")
         for rel_name in self.relation_to_id:
-            results = self.predict_head(rel_name, entity, top_k=top_k)
+            results = self.predict_head(rel_name, entity_r, top_k=top_k)
             if results:
                 top_str = ", ".join(f"{n} ({s:.2f})" for n, s in results[:3])
                 print(f"    <--[{rel_name}]-- {top_str}")
 
-        # Nearest neighbors
-        print(f"\n  Nearest entities in embedding space:")
-        similar = self.find_similar(entity, top_k=top_k)
+        print(f"\n  Nearest entities:")
+        similar = self.find_similar(entity_r, top_k=top_k)
         for name, dist in similar:
-            print(f"    {name:30s}  distance={dist:.4f}")
+            etype = self.catalog.classify_entity(name)
+            print(f"    {name:30s}  dist={dist:.4f}  type={etype}")
 
-    # ──────────────────────────────────────────────────────────────
-    #  QUERY 5: User Preference Recommendation
-    #  "I liked Biryani and Pad Thai, what else would I like?"
-    # ──────────────────────────────────────────────────────────────
-    def recommend_from_likes(
-        self, liked_recipes: list[str], top_k: int = 10,
-        recipe_names: set = None
-    ) -> list[tuple[str, float]]:
-        """
-        Average the embeddings of liked recipes, find nearest recipes.
-        Simple but effective collaborative-filtering-style approach.
-        """
+    # ── User preference recommendation ────────────────────────────
+
+    def recommend_from_likes(self, liked_recipes: list[str], top_k: int = 10
+                             ) -> list[tuple[str, float]]:
         valid_ids = []
         for recipe in liked_recipes:
-            if recipe in self.entity_to_id:
-                valid_ids.append(self.entity_to_id[recipe])
-            else:
-                print(f"  WARNING: '{recipe}' not found, skipping.")
-
+            r = self.resolve_entity(recipe)
+            if r:
+                valid_ids.append(self.entity_to_id[r])
         if not valid_ids:
             return []
 
-        # Average embedding of liked recipes
-        liked_embs = self.entity_embs[valid_ids]
-        centroid = liked_embs.mean(axis=0)
+        centroid = self.entity_embs[valid_ids].mean(axis=0)
+        distances = np.linalg.norm(self.entity_embs - centroid, axis=1)
 
-        # Distance to all entities
-        diffs = self.entity_embs - centroid
-        distances = np.linalg.norm(diffs, axis=1)
+        liked_resolved = {self.resolve_entity(r) for r in liked_recipes}
+        return self._rank(distances, exclude=liked_resolved,
+                         filter_types={"recipe"}, top_k=top_k)
 
-        ranked_ids = np.argsort(distances)
+    # ── Substitution lookup ───────────────────────────────────────
+
+    def find_substitutes(self, ingredient: str, top_k: int = 10) -> list[dict]:
+        """Find substitutes from catalog + graph + embedding similarity."""
+        ingredient_r = self.resolve_entity(ingredient)
         results = []
-        liked_set = set(liked_recipes)
-        for rid in ranked_ids:
-            name = self.id_to_entity[rid]
-            if name in liked_set:
-                continue
-            if recipe_names and name not in recipe_names:
-                continue
-            results.append((name, float(distances[rid])))
-            if len(results) >= top_k:
-                break
 
-        return results
+        # Source 1: Catalog (validated)
+        catalog_subs = self.catalog.get_substitutes(ingredient or "")
+        for sub in catalog_subs:
+            sub_r = self.resolve_entity(sub)
+            results.append({"name": sub, "source": "validated", "in_graph": sub_r is not None})
+
+        # Source 2: KG relation
+        if ingredient_r and "SUBSTITUTES_FOR" in self.relation_to_id:
+            predicted = self.predict_tail(ingredient_r, "SUBSTITUTES_FOR", top_k=top_k,
+                                          filter_types={"ingredient"})
+            existing = {r["name"] for r in results}
+            for name, score in predicted:
+                if name not in existing:
+                    results.append({"name": name, "source": "predicted", "score": round(score, 4)})
+
+        # Source 3: Embedding neighbors
+        if ingredient_r:
+            similar = self.find_similar(ingredient_r, top_k=top_k,
+                                        filter_types={"ingredient"})
+            existing = {r["name"] for r in results}
+            for name, dist in similar:
+                if name not in existing:
+                    results.append({"name": name, "source": "embedding_similarity",
+                                   "distance": round(dist, 4)})
+                if len(results) >= top_k:
+                    break
+
+        return results[:top_k]
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -589,138 +874,212 @@ class KnowledgeGraphInference:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="RotatE Knowledge Graph: Train + Inference",
+        description="RotatE Knowledge Graph: Train + Inference (v2)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Train the model
   python train_and_infer.py train --triples triples.tsv --epochs 300
-
-  # Find similar recipes
-  python train_and_infer.py similar --recipe "Chicken Biryani" --top 10
-
-  # Recommend recipes for an ailment (multi-hop!)
-  python train_and_infer.py recommend --ailment "anemia" --top 10
-
-  # Link prediction: what does a recipe provide?
-  python train_and_infer.py predict --head "Salmon Teriyaki" --relation "PROVIDES"
-
-  # Explore everything connected to an entity
-  python train_and_infer.py explore --entity "iron"
-
-  # Recommend based on user taste
-  python train_and_infer.py likes --recipes "Chicken Biryani" "Pad Thai" --top 10
+  python train_and_infer.py recommend --ailment anemia --top 10
+  python train_and_infer.py similar --recipe "Biryani" --top 10
+  python train_and_infer.py predict --head "Biryani" --relation PROVIDES
+  python train_and_infer.py explore --entity iron
+  python train_and_infer.py likes --recipes "Biryani" "Pad Thai" --top 10
+  python train_and_infer.py ailments
+  python train_and_infer.py nutrients
+  python train_and_infer.py substitutes --ingredient butter
+  python train_and_infer.py describe --entity iron
         """
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
-    # ── Train command ─────────────────────────────────────────────
-    train_parser = subparsers.add_parser("train", help="Train RotatE model")
-    train_parser.add_argument("--triples", default="triples.tsv", help="Path to triples TSV")
-    train_parser.add_argument("--output", default="trained_model", help="Output directory")
-    train_parser.add_argument("--epochs", type=int, default=300, help="Training epochs")
-    train_parser.add_argument("--dim", type=int, default=256, help="Embedding dimension")
-    train_parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
-    train_parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
-    train_parser.add_argument("--num-negs", type=int, default=64, help="Negative samples per positive")
+    # Build all subparsers with shared args
+    commands = {
+        "train": "Train RotatE model",
+        "similar": "Find similar recipes",
+        "recommend": "Recommend recipes for ailment",
+        "predict": "Link prediction",
+        "explore": "Explore entity connections",
+        "likes": "Recommend from liked recipes",
+        "ailments": "List all ailments with descriptions",
+        "nutrients": "List all nutrients with descriptions",
+        "substitutes": "Find substitutes for an ingredient",
+        "describe": "Describe any entity",
+    }
 
-    # ── Similar command ───────────────────────────────────────────
-    sim_parser = subparsers.add_parser("similar", help="Find similar recipes")
-    sim_parser.add_argument("--recipe", required=True, help="Recipe name")
-    sim_parser.add_argument("--top", type=int, default=10, help="Number of results")
-    sim_parser.add_argument("--model-dir", default="trained_model")
+    sps = {}
+    for name, help_text in commands.items():
+        sp = subparsers.add_parser(name, help=help_text)
+        sp.add_argument("--config", default="mined_config.json", help="Path to mined_config.json")
+        sp.add_argument("--model-dir", default="trained_model", help="Trained model directory")
+        sps[name] = sp
 
-    # ── Recommend command ─────────────────────────────────────────
-    rec_parser = subparsers.add_parser("recommend", help="Recommend recipes for ailment")
-    rec_parser.add_argument("--ailment", required=True, help="Ailment name")
-    rec_parser.add_argument("--top", type=int, default=10, help="Number of results")
-    rec_parser.add_argument("--model-dir", default="trained_model")
+    # Command-specific args
+    sps["train"].add_argument("--triples", default="triples.tsv")
+    sps["train"].add_argument("--output", default="trained_model")
+    sps["train"].add_argument("--epochs", type=int, default=300)
+    sps["train"].add_argument("--dim", type=int, default=256)
+    sps["train"].add_argument("--batch-size", type=int, default=256)
+    sps["train"].add_argument("--lr", type=float, default=1e-3)
+    sps["train"].add_argument("--num-negs", type=int, default=64)
+    sps["train"].add_argument("--upload-s3", default=None,
+                               help="S3 URI to upload model after training (e.g., s3://vitalbites/models/latest)")
 
-    # ── Predict command ───────────────────────────────────────────
-    pred_parser = subparsers.add_parser("predict", help="Link prediction")
-    pred_parser.add_argument("--head", help="Head entity")
-    pred_parser.add_argument("--relation", required=True, help="Relation type")
-    pred_parser.add_argument("--tail", help="Tail entity (if predicting head)")
-    pred_parser.add_argument("--top", type=int, default=10, help="Number of results")
-    pred_parser.add_argument("--model-dir", default="trained_model")
+    sps["similar"].add_argument("--recipe", required=True)
+    sps["similar"].add_argument("--top", type=int, default=10)
 
-    # ── Explore command ───────────────────────────────────────────
-    exp_parser = subparsers.add_parser("explore", help="Explore entity connections")
-    exp_parser.add_argument("--entity", required=True, help="Entity to explore")
-    exp_parser.add_argument("--model-dir", default="trained_model")
+    sps["recommend"].add_argument("--ailment", required=True)
+    sps["recommend"].add_argument("--top", type=int, default=10)
 
-    # ── Likes command ─────────────────────────────────────────────
-    likes_parser = subparsers.add_parser("likes", help="Recommend from liked recipes")
-    likes_parser.add_argument("--recipes", nargs="+", required=True, help="Liked recipe names")
-    likes_parser.add_argument("--top", type=int, default=10, help="Number of results")
-    likes_parser.add_argument("--model-dir", default="trained_model")
+    sps["predict"].add_argument("--head")
+    sps["predict"].add_argument("--relation", required=True)
+    sps["predict"].add_argument("--tail")
+    sps["predict"].add_argument("--top", type=int, default=10)
+
+    sps["explore"].add_argument("--entity", required=True)
+
+    sps["likes"].add_argument("--recipes", nargs="+", required=True)
+    sps["likes"].add_argument("--top", type=int, default=10)
+
+    sps["substitutes"].add_argument("--ingredient", required=True)
+    sps["substitutes"].add_argument("--top", type=int, default=10)
+
+    sps["describe"].add_argument("--entity", required=True)
 
     args = parser.parse_args()
-
     if not args.command:
         parser.print_help()
         sys.exit(1)
 
-    # ── Execute commands ──────────────────────────────────────────
+    # Resolve URLs for config and triples
+    config_path = download_if_url(args.config, "mined_config.json")
+
+    # ── Train (no catalog needed) ─────────────────────────────────
     if args.command == "train":
-        train(
-            triples_path=args.triples,
-            output_dir=args.output,
-            epochs=args.epochs,
-            embedding_dim=args.dim,
-            batch_size=args.batch_size,
-            lr=args.lr,
-            num_negs=args.num_negs,
-        )
+        try:
+            train(
+                triples_path=args.triples,
+                output_dir=args.output,
+                epochs=args.epochs,
+                embedding_dim=args.dim,
+                batch_size=args.batch_size,
+                lr=args.lr,
+                num_negs=args.num_negs,
+                upload_s3=args.upload_s3,
+                config_path=config_path,
+            )
+        finally:
+            cleanup_downloads()
         return
 
-    # All inference commands need the trained model
-    kg = KnowledgeGraphInference(args.model_dir)
+    # ── Catalog-only commands (no trained model needed) ───────────
+    if args.command == "ailments":
+        catalog = EntityCatalog(config_path)
+        print(f"\n{'='*70}")
+        print(f"ALL AILMENTS ({len(catalog.ailment_map)} conditions)")
+        print(f"{'='*70}")
+        for ailment in sorted(catalog.ailment_map):
+            info = catalog.ailment_map[ailment]
+            needs = [catalog.normalize_nutrient(n) for n in info.get("needs", [])]
+            avoid = [catalog.normalize_nutrient(n) for n in info.get("avoid", [])]
+            print(f"\n  {ailment}")
+            if needs:
+                print(f"    Needs:  {', '.join(needs)}")
+            if avoid:
+                print(f"    Avoid:  {', '.join(avoid)}")
+        return
 
-    # Build recipe name set for filtering (optional)
-    recipe_json_path = "sample_recipe_data.json"
-    recipe_names = None
-    if os.path.exists(recipe_json_path):
-        with open(recipe_json_path) as f:
-            recipe_names = {r["name"] for r in json.load(f)["recipes"]}
+    if args.command == "nutrients":
+        catalog = EntityCatalog(config_path)
+        print(f"\n{'='*70}")
+        print(f"ALL NUTRIENTS ({len(catalog.nutrient_descriptions)} with descriptions)")
+        print(f"{'='*70}")
+        for nutrient in sorted(catalog.nutrient_descriptions):
+            descs = catalog.nutrient_descriptions[nutrient]
+            helped = []
+            for ailment, adata in catalog.ailment_map.items():
+                ailment_needs = [catalog.normalize_nutrient(n) for n in adata.get("needs", [])]
+                if nutrient in ailment_needs:
+                    helped.append(ailment)
+            print(f"\n  {nutrient}")
+            if descs:
+                print(f"    Function: {descs[0]}")
+                for extra in descs[1:]:
+                    print(f"              {extra}")
+            if helped:
+                print(f"    Helps with: {', '.join(helped)}")
+        return
+
+    if args.command == "describe":
+        catalog = EntityCatalog(config_path)
+        info = catalog.describe_entity(args.entity)
+        print(f"\n{'='*60}")
+        for key, value in info.items():
+            if isinstance(value, list):
+                print(f"  {key}: {', '.join(str(v) for v in value)}")
+            else:
+                print(f"  {key}: {value}")
+        print(f"{'='*60}")
+        return
+
+    # ── Commands that need the trained model ──────────────────────
+    kg = KnowledgeGraphInference(args.model_dir, config_path)
 
     if args.command == "similar":
         print(f"\nRecipes similar to '{args.recipe}':")
-        results = kg.find_similar(args.recipe, top_k=args.top, filter_entities=recipe_names)
+        results = kg.find_similar(args.recipe, top_k=args.top, filter_types={"recipe"})
         for i, (name, dist) in enumerate(results, 1):
-            print(f"  {i:2d}. {name:35s}  distance={dist:.4f}")
+            print(f"  {i:2d}. {name:40s}  distance={dist:.4f}")
 
     elif args.command == "recommend":
         print(f"\nRecommended recipes for '{args.ailment}':")
-        results = kg.recommend_for_ailment(args.ailment, top_k=args.top, recipe_names=recipe_names)
+        results = kg.recommend_for_ailment(args.ailment, top_k=args.top)
         for i, (name, score, nutrients) in enumerate(results, 1):
-            nutrient_str = ", ".join(nutrients)
-            print(f"  {i:2d}. {name:35s}  score={score:.4f}  nutrients=[{nutrient_str}]")
+            print(f"  {i:2d}. {name:40s}  score={score:.4f}")
+            print(f"      nutrients: [{', '.join(nutrients)}]")
 
     elif args.command == "predict":
         if args.head:
             print(f"\nPredicting: ({args.head}, {args.relation}, ???)")
             results = kg.predict_tail(args.head, args.relation, top_k=args.top)
             for i, (name, score) in enumerate(results, 1):
-                print(f"  {i:2d}. {name:35s}  score={score:.4f}")
+                desc = kg.catalog.get_nutrient_description(name)
+                extra = f"  — {desc}" if desc else ""
+                print(f"  {i:2d}. {name:35s}  score={score:.4f}{extra}")
         elif args.tail:
             print(f"\nPredicting: (???, {args.relation}, {args.tail})")
             results = kg.predict_head(args.relation, args.tail, top_k=args.top)
             for i, (name, score) in enumerate(results, 1):
                 print(f"  {i:2d}. {name:35s}  score={score:.4f}")
         else:
-            print("ERROR: Specify either --head or --tail for prediction.")
+            print("ERROR: Specify either --head or --tail.")
 
     elif args.command == "explore":
         kg.explore_entity(args.entity)
 
     elif args.command == "likes":
         print(f"\nBased on your likes: {args.recipes}")
-        results = kg.recommend_from_likes(args.recipes, top_k=args.top, recipe_names=recipe_names)
+        results = kg.recommend_from_likes(args.recipes, top_k=args.top)
         for i, (name, dist) in enumerate(results, 1):
-            print(f"  {i:2d}. {name:35s}  distance={dist:.4f}")
+            print(f"  {i:2d}. {name:40s}  distance={dist:.4f}")
+
+    elif args.command == "substitutes":
+        print(f"\nSubstitutes for '{args.ingredient}':")
+        results = kg.find_substitutes(args.ingredient, top_k=args.top)
+        for i, sub in enumerate(results, 1):
+            name = sub["name"]
+            source = sub["source"]
+            extras = []
+            if "score" in sub:
+                extras.append(f"score={sub['score']}")
+            if "distance" in sub:
+                extras.append(f"dist={sub['distance']}")
+            if "in_graph" in sub:
+                extras.append(f"in_graph={sub['in_graph']}")
+            extra_str = f"  ({', '.join(extras)})" if extras else ""
+            print(f"  {i:2d}. {name:30s}  [{source}]{extra_str}")
 
 
 if __name__ == "__main__":
     main()
+

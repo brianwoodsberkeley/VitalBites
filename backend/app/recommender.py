@@ -1,6 +1,9 @@
 import httpx
 import random
 import json
+import os
+import sys
+from pathlib import Path
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from .models import User, RecipeFeedback
@@ -8,7 +11,101 @@ from .models import User, RecipeFeedback
 # TheMealDB API - free, no API key required
 MEALDB_API_BASE = "https://www.themealdb.com/api/json/v1/1"
 
-# Fallback mock recipes if API fails
+# ============ KG Model Singleton ============
+
+# Add repo root to sys.path so we can import train_and_infer
+_BACKEND_DIR = Path(__file__).resolve().parent.parent  # backend/
+_REPO_ROOT = _BACKEND_DIR.parent                       # VitalBites/
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+# Default model directory: backend/models/
+MODELS_DIR = os.environ.get("VITALBITES_MODELS_DIR", str(_BACKEND_DIR / "models"))
+
+# Cached KG inference engine (loaded once, reused across requests)
+_kg_engine = None
+_kg_load_attempted = False
+
+
+def get_kg_engine():
+    """
+    Lazy-load and cache the KnowledgeGraphInference engine.
+    Returns None if model files are not present.
+    """
+    global _kg_engine, _kg_load_attempted
+
+    if _kg_load_attempted:
+        return _kg_engine
+
+    _kg_load_attempted = True
+
+    # Check if required model files exist
+    required_files = [
+        "entity_to_id.json",
+        "relation_to_id.json",
+        "entity_embeddings.npy",
+        "relation_embeddings.npy",
+    ]
+
+    missing = [f for f in required_files if not os.path.exists(os.path.join(MODELS_DIR, f))]
+    if missing:
+        print(f"[recommender] KG model files missing from {MODELS_DIR}: {missing}")
+        print(f"[recommender] Falling back to TheMealDB/mock recommendations.")
+        return None
+
+    config_path = os.path.join(MODELS_DIR, "mined_config.json")
+    if not os.path.exists(config_path):
+        # Also check repo root as fallback
+        config_path = str(_REPO_ROOT / "mined_config.json")
+    if not os.path.exists(config_path):
+        config_path = "mined_config.json"  # let EntityCatalog handle the missing file
+
+    try:
+        from train_and_infer import KnowledgeGraphInference
+        print(f"[recommender] Loading KG model from {MODELS_DIR}...")
+        _kg_engine = KnowledgeGraphInference(model_dir=MODELS_DIR, config_path=config_path)
+        print(f"[recommender] KG model loaded successfully.")
+    except Exception as e:
+        print(f"[recommender] Failed to load KG model: {e}")
+        _kg_engine = None
+
+    return _kg_engine
+
+
+# ============ TheMealDB Search ============
+
+async def search_mealdb_by_name(name: str) -> Optional[dict]:
+    """Search TheMealDB for a recipe by name and return formatted recipe dict."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{MEALDB_API_BASE}/search.php", params={"s": name})
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("meals"):
+                    meal = data["meals"][0]
+                    ingredients = []
+                    for i in range(1, 21):
+                        ingredient = meal.get(f"strIngredient{i}")
+                        if ingredient and ingredient.strip():
+                            ingredients.append(ingredient)
+                    return {
+                        "id": meal["idMeal"],
+                        "name": meal["strMeal"],
+                        "image": meal["strMealThumb"],
+                        "category": meal["strCategory"],
+                        "area": meal.get("strArea", ""),
+                        "instructions": meal["strInstructions"],
+                        "ingredients": ingredients,
+                        "source": meal.get("strSource", ""),
+                        "youtube": meal.get("strYoutube", ""),
+                    }
+    except Exception as e:
+        print(f"[recommender] MealDB search failed for '{name}': {e}")
+    return None
+
+
+# ============ Fallback: TheMealDB random + mock ============
+
 MOCK_RECIPES = [
     {
         "id": "mock_1",
@@ -47,7 +144,7 @@ MOCK_RECIPES = [
         "name": "Lentil Soup",
         "image": "https://via.placeholder.com/300x200?text=Lentil+Soup",
         "category": "Soup",
-        "instructions": "Sauté onions and garlic. Add lentils and broth. Simmer until tender.",
+        "instructions": "Saut\u00e9 onions and garlic. Add lentils and broth. Simmer until tender.",
         "ingredients": ["Red lentils", "Onion", "Garlic", "Carrots", "Vegetable broth", "Cumin"]
     },
     {
@@ -55,7 +152,7 @@ MOCK_RECIPES = [
         "name": "Baked Cod with Herbs",
         "image": "https://via.placeholder.com/300x200?text=Baked+Cod",
         "category": "Seafood",
-        "instructions": "Season cod with herbs and lemon. Bake at 400°F for 15-20 minutes.",
+        "instructions": "Season cod with herbs and lemon. Bake at 400\u00b0F for 15-20 minutes.",
         "ingredients": ["Cod fillet", "Lemon", "Dill", "Parsley", "Olive oil", "Garlic"]
     },
     {
@@ -71,7 +168,7 @@ MOCK_RECIPES = [
         "name": "Vegetable Curry",
         "image": "https://via.placeholder.com/300x200?text=Vegetable+Curry",
         "category": "Vegetarian",
-        "instructions": "Sauté vegetables in curry paste. Add coconut milk and simmer.",
+        "instructions": "Saut\u00e9 vegetables in curry paste. Add coconut milk and simmer.",
         "ingredients": ["Sweet potato", "Chickpeas", "Spinach", "Coconut milk", "Curry paste", "Rice"]
     },
     {
@@ -87,7 +184,7 @@ MOCK_RECIPES = [
         "name": "Shrimp and Zucchini Noodles",
         "image": "https://via.placeholder.com/300x200?text=Zoodles",
         "category": "Seafood",
-        "instructions": "Spiralize zucchini. Sauté shrimp with garlic. Toss together with olive oil.",
+        "instructions": "Spiralize zucchini. Saut\u00e9 shrimp with garlic. Toss together with olive oil.",
         "ingredients": ["Shrimp", "Zucchini", "Garlic", "Cherry tomatoes", "Olive oil", "Basil"]
     },
     {
@@ -136,7 +233,7 @@ MOCK_RECIPES = [
 async def fetch_recipes_from_api(count: int = 10) -> List[dict]:
     """Fetch random recipes from TheMealDB API"""
     recipes = []
-    
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             for _ in range(count):
@@ -145,14 +242,14 @@ async def fetch_recipes_from_api(count: int = 10) -> List[dict]:
                     data = response.json()
                     if data.get("meals"):
                         meal = data["meals"][0]
-                        
+
                         # Extract ingredients
                         ingredients = []
                         for i in range(1, 21):
                             ingredient = meal.get(f"strIngredient{i}")
                             if ingredient and ingredient.strip():
                                 ingredients.append(ingredient)
-                        
+
                         recipes.append({
                             "id": meal["idMeal"],
                             "name": meal["strMeal"],
@@ -166,7 +263,7 @@ async def fetch_recipes_from_api(count: int = 10) -> List[dict]:
                         })
     except Exception as e:
         print(f"Error fetching from API: {e}")
-    
+
     return recipes
 
 
@@ -175,64 +272,133 @@ def get_mock_recipes(count: int = 10) -> List[dict]:
     return random.sample(MOCK_RECIPES, min(count, len(MOCK_RECIPES)))
 
 
+# ============ Main Recommendation Logic ============
+
 async def get_recommendations(
     user: User,
     db: Session,
     count: int = 10
 ) -> List[dict]:
     """
-    Mock recommender that fetches recipes.
-    In production, this would use the ML model to filter/rank based on:
-    - User's health conditions
-    - Previously skipped recipes
-    - User preferences
+    Get personalized recipe recommendations.
+    Uses KG model when available, falls back to TheMealDB/mock.
     """
-    
-    # Get user's restrictions
+
+    # Get user's avoid list
     restrictions = []
     for ailment in user.ailments:
-        restrictions.extend(ailment.dietary_restrictions.split(','))
-    restrictions = list(set(restrictions))
-    
+        if ailment.avoid:
+            restrictions.extend(ailment.avoid.split(','))
+    restrictions = list(set(r for r in restrictions if r))
+
     # Get previously skipped recipe IDs
     skipped_feedback = db.query(RecipeFeedback).filter(
         RecipeFeedback.user_id == user.id,
         RecipeFeedback.skipped == True
     ).all()
     skipped_ids = {f.recipe_id for f in skipped_feedback}
-    
-    # Get previously cooked recipe IDs (for reference)
+
+    # Get previously cooked recipe IDs
     cooked_feedback = db.query(RecipeFeedback).filter(
         RecipeFeedback.user_id == user.id,
         RecipeFeedback.cooked == True
     ).all()
     cooked_ids = {f.recipe_id for f in cooked_feedback}
-    
-    # Try to fetch from API first
-    recipes = await fetch_recipes_from_api(count + 5)  # Fetch extra to filter
-    
-    # Fall back to mock recipes if API fails
+
+    # -- Try KG-based recommendations --
+    kg = get_kg_engine()
+    if kg and user.ailments:
+        recipes = await _kg_recommendations(kg, user, count, skipped_ids, cooked_ids, restrictions)
+        if recipes:
+            return recipes
+
+    # -- Fallback: TheMealDB + mock --
+    recipes = await fetch_recipes_from_api(count * 2)
     if len(recipes) < count:
-        recipes = get_mock_recipes(count + 5)
-    
-    # Filter out skipped recipes
+        recipes = get_mock_recipes(count * 2)
+
     recipes = [r for r in recipes if r["id"] not in skipped_ids]
-    
-    # In production, here we would:
-    # 1. Filter recipes based on dietary restrictions
-    # 2. Use ML model to rank remaining recipes
-    # 3. Apply diversity rules
-    
-    # For now, just shuffle and return
     random.shuffle(recipes)
-    
-    # Add metadata for the frontend
+
     for recipe in recipes:
         recipe["previously_cooked"] = recipe["id"] in cooked_ids
         recipe["restrictions_applied"] = restrictions
-    
+
     return recipes[:count]
 
+
+async def _kg_recommendations(
+    kg,
+    user: User,
+    count: int,
+    skipped_ids: set,
+    cooked_ids: set,
+    restrictions: List[str],
+) -> List[dict]:
+    """
+    Use the KG inference engine to get ailment-based recommendations.
+    For each user ailment, runs recommend_for_ailment and merges results.
+    Tries to enrich recipe names with TheMealDB data.
+    """
+    # Aggregate recommendations across all user ailments
+    recipe_scores = {}  # recipe_name -> (best_score, nutrients)
+
+    for ailment in user.ailments:
+        ailment_name = ailment.name.lower().replace(" ", "_")
+        try:
+            results = kg.recommend_for_ailment(ailment_name, top_k=count * 2)
+            for recipe_name, score, nutrients in results:
+                if recipe_name not in recipe_scores or score < recipe_scores[recipe_name][0]:
+                    recipe_scores[recipe_name] = (score, nutrients)
+        except Exception as e:
+            print(f"[recommender] KG recommend failed for '{ailment_name}': {e}")
+
+    if not recipe_scores:
+        return []
+
+    # Sort by score (lower is better in RotatE distance)
+    sorted_recipes = sorted(recipe_scores.items(), key=lambda x: x[1][0])
+
+    # Build recipe dicts, try to enrich from TheMealDB
+    recipes = []
+    for recipe_name, (score, nutrients) in sorted_recipes:
+        # Use recipe name as a stable ID for the KG recipes
+        recipe_id = f"kg_{recipe_name.replace(' ', '_').lower()}"
+
+        if recipe_id in skipped_ids:
+            continue
+
+        # Try TheMealDB lookup for image/instructions
+        mealdb_data = await search_mealdb_by_name(recipe_name)
+
+        if mealdb_data:
+            recipe = mealdb_data
+            recipe["kg_score"] = round(score, 4)
+            recipe["kg_nutrients"] = nutrients
+        else:
+            # Return with just KG data
+            recipe = {
+                "id": recipe_id,
+                "name": recipe_name,
+                "image": f"https://via.placeholder.com/300x200?text={recipe_name.replace(' ', '+')}",
+                "category": "KG Recommended",
+                "instructions": f"Recipe recommended based on nutritional profile. Provides: {', '.join(nutrients)}.",
+                "ingredients": [],
+                "kg_score": round(score, 4),
+                "kg_nutrients": nutrients,
+            }
+
+        recipe["previously_cooked"] = recipe.get("id", recipe_id) in cooked_ids
+        recipe["restrictions_applied"] = restrictions
+        recipes.append(recipe)
+
+        if len(recipes) >= count:
+            break
+
+    return recipes
+
+
+# ============ Feedback Helpers (unchanged) ============
 
 def save_recipe_feedback(
     db: Session,
@@ -246,13 +412,13 @@ def save_recipe_feedback(
     rating: Optional[int] = None
 ) -> RecipeFeedback:
     """Save or update user feedback for a recipe"""
-    
+
     # Check if feedback already exists
     existing = db.query(RecipeFeedback).filter(
         RecipeFeedback.user_id == user_id,
         RecipeFeedback.recipe_id == recipe_id
     ).first()
-    
+
     if existing:
         existing.cooked = cooked
         existing.skipped = skipped
@@ -261,7 +427,7 @@ def save_recipe_feedback(
         db.commit()
         db.refresh(existing)
         return existing
-    
+
     # Create new feedback
     feedback = RecipeFeedback(
         user_id=user_id,
@@ -273,7 +439,7 @@ def save_recipe_feedback(
         skipped=skipped,
         rating=rating
     )
-    
+
     db.add(feedback)
     db.commit()
     db.refresh(feedback)
@@ -287,12 +453,12 @@ def get_user_feedback_history(
     skipped_only: bool = False
 ) -> List[RecipeFeedback]:
     """Get user's recipe feedback history"""
-    
+
     query = db.query(RecipeFeedback).filter(RecipeFeedback.user_id == user_id)
-    
+
     if cooked_only:
         query = query.filter(RecipeFeedback.cooked == True)
     elif skipped_only:
         query = query.filter(RecipeFeedback.skipped == True)
-    
+
     return query.order_by(RecipeFeedback.updated_at.desc()).all()

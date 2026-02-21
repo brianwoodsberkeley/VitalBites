@@ -1,45 +1,63 @@
+version: '3.8'
+
 services:
-  frontend:
-    build: ../frontend
-    ports:
-      - "3000:3000"
-    volumes:
-      - ../frontend/src:/app/src
-      - ../frontend/public:/app/public
+  db:
+    image: postgres:15
+    restart: unless-stopped
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
-      - WATCHPACK_POLLING=true
-    depends_on:
-      - backend
+      POSTGRES_USER: vitalbites
+      POSTGRES_PASSWORD: vitalbites_secret
+      POSTGRES_DB: vitalbites
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
 
   backend:
     build: ../backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://vitalbites:vitalbites_secret@db:5432/vitalbites
+      SECRET_KEY: change-me-in-production
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
     ports:
       - "8000:8000"
-    volumes:
-      - ../backend:/app
-    environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/recipes
-      - SECRET_KEY=your-super-secret-key-change-in-production
     depends_on:
-      db:
-        condition: service_healthy
+      - db
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-  db:
-    image: postgres:15
+  frontend:
+    build: ../frontend
+    restart: unless-stopped
     environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=recipes
+      REACT_APP_API_URL: https://brianosaurus.com/api
+    expose:
+      - "3000"
+    depends_on:
+      - backend
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "80:80"
+      - "443:443"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d recipes"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - frontend
+      - backend
+    command: '/bin/sh -c ''while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'''
+
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
 volumes:
-  postgres_data:
+  pgdata:

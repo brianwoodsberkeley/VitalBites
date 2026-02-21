@@ -49,12 +49,23 @@ export const login = async (email, password) => {
 
   const data = await response.json();
   localStorage.setItem('token', data.access_token);
+
+  // Fetch user profile to store userId for URL-based navigation
+  const userResponse = await fetch(`${API_URL}/users/me`, {
+    headers: { 'Authorization': `Bearer ${data.access_token}` },
+  });
+  if (userResponse.ok) {
+    const userData = await userResponse.json();
+    localStorage.setItem('userId', userData.id);
+  }
+
   return data;
 };
 
 // Logout user
 export const logout = () => {
   localStorage.removeItem('token');
+  localStorage.removeItem('userId');
 };
 
 // Get current user profile
@@ -67,6 +78,24 @@ export const getCurrentUser = async () => {
 
   if (!response.ok) {
     throw new Error('Failed to get user profile');
+  }
+
+  return response.json();
+};
+
+// Update user ailments
+export const updateAilments = async (ailmentIds) => {
+  const response = await fetch(`${API_URL}/users/me/ailments`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(ailmentIds),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to update ailments');
   }
 
   return response.json();
@@ -134,6 +163,48 @@ export const getFeedbackHistory = async (cookedOnly = false, skippedOnly = false
     throw new Error('Failed to get feedback history');
   }
 
+  return response.json();
+};
+
+// ============ Public User Endpoints (no auth) ============
+
+// Get user profile by ID (public)
+export const getUserById = async (userId) => {
+  const response = await fetch(`${API_URL}/users/${userId}`);
+  if (!response.ok) {
+    throw new Error('Failed to get user profile');
+  }
+  return response.json();
+};
+
+// Get recommendations by user ID (public)
+export const getRecommendationsByUser = async (userId, count = 10) => {
+  const response = await fetch(`${API_URL}/users/${userId}/recommendations?count=${count}`);
+  if (!response.ok) {
+    throw new Error('Failed to get recommendations');
+  }
+  return response.json();
+};
+
+// Get feedback history by user ID (public)
+export const getFeedbackHistoryByUser = async (userId, cookedOnly = false, skippedOnly = false) => {
+  const params = new URLSearchParams();
+  if (cookedOnly) params.append('cooked_only', 'true');
+  if (skippedOnly) params.append('skipped_only', 'true');
+
+  const response = await fetch(`${API_URL}/users/${userId}/feedback/history?${params}`);
+  if (!response.ok) {
+    throw new Error('Failed to get feedback history');
+  }
+  return response.json();
+};
+
+// Search YouTube for a recipe video
+export const getRecipeYouTube = async (name) => {
+  const response = await fetch(`${API_URL}/recipe/youtube?name=${encodeURIComponent(name)}`);
+  if (!response.ok) {
+    throw new Error('Failed to get YouTube link');
+  }
   return response.json();
 };
 
