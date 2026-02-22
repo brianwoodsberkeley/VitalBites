@@ -3,8 +3,8 @@
 # Initial Let's Encrypt certificate provisioning script
 # Run once on first deploy: sudo bash init-letsencrypt.sh
 
-domains=(brianosaurus.com www.brianosaurus.com)
-email="brian@brianosaurus.com"  # Change to your email
+domains=(vitalfoods.ai www.vitalfoods.ai)
+email="brian@vitalfoods.ai"  # Change to your email
 staging=0  # Set to 1 for testing (avoids rate limits)
 data_path="./certbot"
 rsa_key_size=4096
