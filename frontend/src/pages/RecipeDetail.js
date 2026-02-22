@@ -118,7 +118,11 @@ function RecipeDetail() {
     return true;
   });
 
-  const instructions = recipe.instructions || recipe.strInstructions || '';
+  const instructionsRaw = recipe.instructions || recipe.strInstructions || '';
+  const instructions = instructionsRaw
+    .replace(/[\u25A1\u25A2\u25FB\u25FC\u25FD\u25FE\u2610\u2B1C\u2B1B\uFFFD]/g, '')
+    .replace(/\n\s*\n/g, '\n')
+    .trim();
   const image = recipe.image || recipe.strMealThumb || '';
   const recipeName = recipe.name || recipe.strMeal || 'Recipe';
   const category = recipe.category || recipe.strCategory || '';
