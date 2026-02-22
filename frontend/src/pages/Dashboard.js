@@ -13,6 +13,7 @@ function Dashboard() {
   const [cookedHistory, setCookedHistory] = useState([]);
   const [skippedHistory, setSkippedHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [recipesLoading, setRecipesLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('recommendations');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -27,6 +28,7 @@ function Dashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
+      setRecipesLoading(true);
 
       let userData;
       if (urlUserId) {
@@ -36,6 +38,7 @@ function Dashboard() {
         userData = await getCurrentUser();
       }
       setUser(userData);
+      setLoading(false);
 
       const uid = urlUserId || userData.id;
 
@@ -55,6 +58,7 @@ function Dashboard() {
       }
     } finally {
       setLoading(false);
+      setRecipesLoading(false);
     }
   };
 
@@ -119,12 +123,59 @@ function Dashboard() {
     navigate(`/u/${effectiveUserId}/recipe/${recipe.id}`, { state: { recipe } });
   };
 
-  const getUserAilmentNames = () => {
-    if (!user || !user.ailment_ids) return [];
-    return user.ailment_ids.map(id => {
-      const ailment = ALL_AILMENTS.find(a => a.id === id);
-      return ailment ? ailment.name : `Condition #${id}`;
+  // Get the user's ailment objects for nutrient/condition mapping
+  const getUserAilments = () => {
+    if (!user) return [];
+    if (user.ailments && Array.isArray(user.ailments)) {
+      return user.ailments;
+    }
+    if (user.ailment_ids && Array.isArray(user.ailment_ids)) {
+      return user.ailment_ids.map(id => ALL_AILMENTS.find(a => a.id === id)).filter(Boolean);
+    }
+    return [];
+  };
+
+  // For a recipe, figure out which conditions it helps and what nutrients it provides
+  const getRecipeHealthInfo = (recipe) => {
+    // If KG data is available, use it directly
+    if (recipe.kg_nutrients && recipe.kg_nutrients.length > 0) {
+      const nutrients = recipe.kg_nutrients;
+      const ailments = getUserAilments();
+      const conditions = ailments
+        .filter(a => {
+          const needs = a.needs ? a.needs.split(',').map(n => n.trim().toLowerCase()) : [];
+          return nutrients.some(n => needs.includes(n.toLowerCase()));
+        })
+        .map(a => a.name);
+      return { nutrients, conditions };
+    }
+
+    // Fallback: show the user's conditions and their needed nutrients
+    const ailments = getUserAilments();
+    const allNeeds = new Set();
+    ailments.forEach(a => {
+      if (a.needs) {
+        a.needs.split(',').forEach(n => allNeeds.add(n.trim()));
+      }
     });
+    return {
+      nutrients: Array.from(allNeeds),
+      conditions: ailments.map(a => a.name),
+    };
+  };
+
+  const getUserAilmentNames = () => {
+    if (!user) return [];
+    if (user.ailments && Array.isArray(user.ailments)) {
+      return user.ailments.map(a => a.name);
+    }
+    if (user.ailment_ids && Array.isArray(user.ailment_ids)) {
+      return user.ailment_ids.map(id => {
+        const ailment = ALL_AILMENTS.find(a => a.id === id);
+        return ailment ? ailment.name : `Condition #${id}`;
+      });
+    }
+    return [];
   };
 
   if (loading) {
@@ -132,9 +183,45 @@ function Dashboard() {
       <div className="dashboard bg-dashboard">
         <div className="navbar">
           <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
+          <div className="navbar-user">
+            <div className="skeleton skeleton-text" style={{ width: 120 }} />
+            <div className="skeleton skeleton-circle" style={{ width: 40, height: 40 }} />
+          </div>
         </div>
         <div className="dashboard-content">
-          <div className="loading-recipes">Loading your dashboard...</div>
+          {/* Stats skeleton */}
+          <div className="stats-bar">
+            <div className="stat-item"><div className="skeleton skeleton-text" style={{ width: 40, height: 28, margin: '0 auto 0.25rem' }} /><div className="skeleton skeleton-text" style={{ width: 60, height: 12, margin: '0 auto' }} /></div>
+            <div className="stat-item"><div className="skeleton skeleton-text" style={{ width: 40, height: 28, margin: '0 auto 0.25rem' }} /><div className="skeleton skeleton-text" style={{ width: 60, height: 12, margin: '0 auto' }} /></div>
+            <div className="stat-item"><div className="skeleton skeleton-text" style={{ width: 40, height: 28, margin: '0 auto 0.25rem' }} /><div className="skeleton skeleton-text" style={{ width: 60, height: 12, margin: '0 auto' }} /></div>
+          </div>
+
+          {/* Health profile skeleton */}
+          <div className="welcome-card">
+            <div className="skeleton skeleton-text" style={{ width: 120, height: 16, marginBottom: '0.75rem' }} />
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <div className="skeleton skeleton-pill" /><div className="skeleton skeleton-pill" /><div className="skeleton skeleton-pill" /><div className="skeleton skeleton-pill" />
+            </div>
+          </div>
+
+          {/* Tabs skeleton */}
+          <div className="tabs">
+            <div className="tab active">Recommendations</div>
+            <div className="tab">Cooked</div>
+            <div className="tab">Skipped</div>
+          </div>
+
+          {/* Recipes loading with spinner */}
+          <div className="recipes-section">
+            <div className="section-header">
+              <div className="skeleton skeleton-text" style={{ width: 180, height: 20 }} />
+              <div className="skeleton skeleton-btn" />
+            </div>
+            <div className="loading-spinner-container">
+              <div className="spinner" />
+              <p className="loading-spinner-text">Loading your recipes...</p>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -235,7 +322,12 @@ function Dashboard() {
               </button>
             </div>
             <p className="recipe-instructions-hint">Click on a recipe to see details and cooking instructions</p>
-            {recipes.length === 0 ? (
+            {(recipesLoading || refreshing) ? (
+              <div className="loading-spinner-container">
+                <div className="spinner" />
+                <p className="loading-spinner-text">Loading your recipes...</p>
+              </div>
+            ) : recipes.length === 0 ? (
               <div className="empty-message">No recipes found. Try refreshing!</div>
             ) : (
               <div className="recipe-table-container">
@@ -244,22 +336,29 @@ function Dashboard() {
                     <tr>
                       <th>#</th>
                       <th>Recipe</th>
-                      <th>Category</th>
+                      <th>Helps With</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {recipes.map((recipe, index) => (
-                      <tr key={recipe.id} className="recipe-table-row" onClick={() => handleRecipeClick(recipe)}>
-                        <td className="recipe-table-num">{index + 1}</td>
-                        <td className="recipe-table-name">
-                          {recipe.name}
-                          {cookedHistory.some(h => h.recipe_id === recipe.id) && (
-                            <span className="cooked-badge-inline">Cooked</span>
-                          )}
-                        </td>
-                        <td className="recipe-table-category">{recipe.category || recipe.strCategory || '—'}</td>
-                      </tr>
-                    ))}
+                    {recipes.map((recipe, index) => {
+                      const healthInfo = getRecipeHealthInfo(recipe);
+                      return (
+                        <tr key={recipe.id} className="recipe-table-row" onClick={() => handleRecipeClick(recipe)}>
+                          <td className="recipe-table-num">{index + 1}</td>
+                          <td className="recipe-table-name">
+                            {recipe.name}
+                            {cookedHistory.some(h => h.recipe_id === recipe.id) && (
+                              <span className="cooked-badge-inline">Cooked</span>
+                            )}
+                          </td>
+                          <td className="recipe-table-conditions">
+                            {healthInfo.conditions.slice(0, 3).map((c, i) => (
+                              <span key={i} className="condition-tag">{c}</span>
+                            ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -1089,6 +1089,35 @@
   font-size: 0.85rem;
 }
 
+.recipe-table-conditions,
+.recipe-table-nutrients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.condition-tag {
+  display: inline-block;
+  background: rgba(45, 106, 79, 0.1);
+  color: var(--primary);
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nutrient-tag {
+  display: inline-block;
+  background: rgba(224, 122, 95, 0.12);
+  color: #b35a3a;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* ===== Recipe Detail Page ===== */
 .back-btn {
   display: inline-flex;
@@ -1264,6 +1293,71 @@
 
 .action-btn-traderjoes:hover {
   background: #a00d25;
+}
+
+/* ===== Loading Spinner & Skeleton ===== */
+.loading-spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+}
+
+.spinner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background-image: url('https://images.unsplash.com/photo-1557800636-894a64c1696f?w=128&q=80');
+  background-size: cover;
+  background-position: center;
+  animation: spin 1.2s linear infinite;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-spinner-text {
+  margin-top: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* Skeleton placeholders */
+.skeleton {
+  background: linear-gradient(90deg, var(--border) 25%, #f0f0f0 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease infinite;
+  border-radius: 6px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-text {
+  height: 14px;
+  display: block;
+}
+
+.skeleton-circle {
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-pill {
+  width: 80px;
+  height: 26px;
+  border-radius: 20px;
+}
+
+.skeleton-btn {
+  width: 120px;
+  height: 36px;
+  border-radius: var(--radius-sm);
 }
 
 /* ===== Toast Notification ===== */
