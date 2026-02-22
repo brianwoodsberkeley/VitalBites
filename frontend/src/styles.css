@@ -973,6 +973,66 @@
   font-size: 0.9rem;
 }
 
+.ingredients-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.ingredients-table thead th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 2px solid var(--border);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.ingredients-table tbody td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.ingredients-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ingredient-nutrients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.nutrient-tag-sm {
+  display: inline-block;
+  background: rgba(224, 122, 95, 0.12);
+  color: #b35a3a;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.helps-with-section {
+  margin-bottom: 1rem;
+}
+
+.helps-with-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.recipe-table-category {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
 .instructions {
   color: var(--text-secondary);
   line-height: 1.7;
@@ -1308,7 +1368,6 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background-image: url('https://images.unsplash.com/photo-1557800636-894a64c1696f?w=128&q=80');
   background-size: cover;
   background-position: center;
   animation: spin 1.2s linear infinite;

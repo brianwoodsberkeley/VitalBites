@@ -3,6 +3,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import { getCurrentUser, getRecommendations, getRecommendationsByUser, submitFeedback, getFeedbackHistory, getFeedbackHistoryByUser, logout, isLoggedIn, deleteFeedback } from '../services/api';
 import { ALL_AILMENTS } from '../data/ailments';
 import Logo from '../components/Logo';
+import Throbber from '../components/Throbber';
 import '../styles.css';
 
 function Dashboard() {
@@ -17,6 +18,7 @@ function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('recommendations');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [throbberSeed, setThrobberSeed] = useState(0);
 
   const isOwner = isLoggedIn() && user && String(localStorage.getItem('userId')) === String(user.id);
   const effectiveUserId = urlUserId || localStorage.getItem('userId');
@@ -29,6 +31,7 @@ function Dashboard() {
     try {
       setLoading(true);
       setRecipesLoading(true);
+      setThrobberSeed(s => s + 1);
 
       let userData;
       if (urlUserId) {
@@ -64,6 +67,7 @@ function Dashboard() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    setThrobberSeed(s => s + 1);
     try {
       const recsData = urlUserId
         ? await getRecommendationsByUser(effectiveUserId)
@@ -218,7 +222,7 @@ function Dashboard() {
               <div className="skeleton skeleton-btn" />
             </div>
             <div className="loading-spinner-container">
-              <div className="spinner" />
+              <Throbber seed={throbberSeed} />
               <p className="loading-spinner-text">Loading your recipes...</p>
             </div>
           </div>
@@ -324,7 +328,7 @@ function Dashboard() {
             <p className="recipe-instructions-hint">Click on a recipe to see details and cooking instructions</p>
             {(recipesLoading || refreshing) ? (
               <div className="loading-spinner-container">
-                <div className="spinner" />
+                <Throbber seed={throbberSeed} />
                 <p className="loading-spinner-text">Loading your recipes...</p>
               </div>
             ) : recipes.length === 0 ? (
@@ -336,7 +340,7 @@ function Dashboard() {
                     <tr>
                       <th>#</th>
                       <th>Recipe</th>
-                      <th>Helps With</th>
+                      <th>Category</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -351,10 +355,8 @@ function Dashboard() {
                               <span className="cooked-badge-inline">Cooked</span>
                             )}
                           </td>
-                          <td className="recipe-table-conditions">
-                            {healthInfo.conditions.slice(0, 3).map((c, i) => (
-                              <span key={i} className="condition-tag">{c}</span>
-                            ))}
+                          <td className="recipe-table-category">
+                            {recipe.category || recipe.strCategory || ''}
                           </td>
                         </tr>
                       );

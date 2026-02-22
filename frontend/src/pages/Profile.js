@@ -162,6 +162,7 @@ function Profile() {
                         className="ailment-checkbox"
                         checked={selectedAilments.includes(ailment.id)}
                         onChange={() => handleAilmentToggle(ailment.id)}
+                        onClick={(e) => e.stopPropagation()}
                       />
                       <div className="ailment-info">
                         <div className="ailment-name">{ailment.name}</div>

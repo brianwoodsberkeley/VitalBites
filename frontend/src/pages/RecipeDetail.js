@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
-import { getRecipeYouTube, submitFeedback, isLoggedIn, logout } from '../services/api';
+import { getRecipeYouTube, submitFeedback, isLoggedIn, logout, getCurrentUser } from '../services/api';
+import { ALL_AILMENTS } from '../data/ailments';
 import Logo from '../components/Logo';
 import '../styles.css';
 
@@ -14,8 +15,19 @@ function RecipeDetail() {
   const [youtubeTitle, setYoutubeTitle] = useState(null);
   const [toast, setToast] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [userAilments, setUserAilments] = useState([]);
 
   const isOwner = isLoggedIn() && String(localStorage.getItem('userId')) === String(userId);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        navigate(`/u/${userId}/dashboard`);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [navigate, userId]);
 
   useEffect(() => {
     if (!recipe) {
@@ -40,6 +52,19 @@ function RecipeDetail() {
       })
       .catch(() => {});
   }, [recipe, userId, navigate]);
+
+  useEffect(() => {
+    if (isLoggedIn()) {
+      getCurrentUser()
+        .then(userData => {
+          const ailments = userData.ailments && Array.isArray(userData.ailments)
+            ? userData.ailments
+            : (userData.ailment_ids || []).map(id => ALL_AILMENTS.find(a => a.id === id)).filter(Boolean);
+          setUserAilments(ailments);
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   const showToast = (message) => {
     setToast(message);
@@ -99,6 +124,117 @@ function RecipeDetail() {
   const category = recipe.category || recipe.strCategory || '';
   const area = recipe.area || recipe.strArea || '';
 
+  // Map nutrients from KG data to conditions the recipe helps with
+  const getHelpsWithConditions = () => {
+    const nutrients = recipe.kg_nutrients || [];
+    if (nutrients.length > 0) {
+      return userAilments
+        .filter(a => {
+          const needs = a.needs ? a.needs.split(',').map(n => n.trim().toLowerCase()) : [];
+          return nutrients.some(n => needs.includes(n.toLowerCase()));
+        })
+        .map(a => a.name);
+    }
+    return userAilments.map(a => a.name);
+  };
+
+  const helpsWithConditions = getHelpsWithConditions();
+
+  // Map common ingredients to their micro-nutrients
+  const INGREDIENT_NUTRIENT_MAP = {
+    'spinach': ['iron', 'folate', 'vitamin K1', 'magnesium', 'vitamin C'],
+    'kale': ['vitamin K1', 'vitamin C', 'calcium', 'iron'],
+    'broccoli': ['vitamin C', 'vitamin K1', 'folate', 'fiber', 'chromium'],
+    'sweet potato': ['vitamin A', 'fiber', 'potassium', 'manganese'],
+    'carrot': ['vitamin A', 'fiber', 'potassium'],
+    'tomato': ['vitamin C', 'potassium', 'folate', 'vitamin K1'],
+    'bell pepper': ['vitamin C', 'vitamin A', 'folate'],
+    'pepper': ['vitamin C'],
+    'garlic': ['selenium', 'manganese', 'vitamin B6'],
+    'onion': ['vitamin C', 'chromium', 'fiber'],
+    'ginger': ['magnesium', 'manganese', 'potassium'],
+    'lemon': ['vitamin C', 'folate', 'potassium'],
+    'lime': ['vitamin C', 'folate'],
+    'orange': ['vitamin C', 'folate', 'potassium', 'fiber'],
+    'banana': ['potassium', 'magnesium', 'vitamin B6', 'fiber'],
+    'avocado': ['potassium', 'magnesium', 'folate', 'monounsaturated fat', 'fiber'],
+    'blueberr': ['vitamin C', 'vitamin K1', 'manganese', 'fiber'],
+    'strawberr': ['vitamin C', 'folate', 'manganese', 'fiber'],
+    'apple': ['fiber', 'vitamin C', 'potassium'],
+    'chicken': ['protein', 'selenium', 'vitamin B6', 'zinc', 'phosphorus'],
+    'turkey': ['protein', 'selenium', 'zinc', 'phosphorus'],
+    'beef': ['protein', 'iron', 'zinc', 'vitamin B12', 'selenium'],
+    'lamb': ['protein', 'iron', 'zinc', 'vitamin B12'],
+    'pork': ['protein', 'selenium', 'zinc', 'vitamin B12', 'phosphorus'],
+    'salmon': ['protein', 'polyunsaturated fat', 'vitamin D', 'selenium', 'vitamin B12'],
+    'tuna': ['protein', 'selenium', 'vitamin B12', 'polyunsaturated fat'],
+    'shrimp': ['protein', 'selenium', 'vitamin B12', 'zinc', 'copper'],
+    'cod': ['protein', 'selenium', 'vitamin B12', 'phosphorus'],
+    'sardine': ['calcium', 'vitamin D', 'vitamin B12', 'polyunsaturated fat', 'selenium'],
+    'mackerel': ['polyunsaturated fat', 'vitamin B12', 'selenium', 'vitamin D'],
+    'egg': ['protein', 'selenium', 'vitamin B12', 'vitamin D', 'iron', 'zinc'],
+    'milk': ['calcium', 'vitamin D', 'protein', 'phosphorus', 'vitamin B12'],
+    'yogurt': ['calcium', 'protein', 'vitamin B12', 'phosphorus'],
+    'cheese': ['calcium', 'protein', 'phosphorus', 'zinc', 'vitamin B12'],
+    'butter': ['vitamin A', 'saturated fat'],
+    'cream': ['calcium', 'vitamin A'],
+    'tofu': ['protein', 'calcium', 'iron', 'magnesium'],
+    'lentil': ['fiber', 'iron', 'folate', 'protein', 'magnesium', 'potassium'],
+    'chickpea': ['fiber', 'protein', 'iron', 'folate', 'magnesium'],
+    'black bean': ['fiber', 'protein', 'iron', 'folate', 'magnesium'],
+    'kidney bean': ['fiber', 'protein', 'iron', 'folate'],
+    'bean': ['fiber', 'protein', 'iron', 'folate'],
+    'pea': ['fiber', 'protein', 'vitamin C', 'iron', 'folate'],
+    'rice': ['carbohydrate', 'manganese', 'selenium'],
+    'oat': ['fiber', 'magnesium', 'iron', 'zinc', 'manganese'],
+    'quinoa': ['protein', 'fiber', 'magnesium', 'iron', 'manganese'],
+    'pasta': ['carbohydrate', 'iron', 'folate'],
+    'bread': ['carbohydrate', 'iron', 'folate', 'fiber'],
+    'wheat': ['fiber', 'manganese', 'selenium', 'magnesium'],
+    'almond': ['magnesium', 'vitamin E', 'calcium', 'fiber', 'protein'],
+    'walnut': ['polyunsaturated fat', 'magnesium', 'copper', 'manganese'],
+    'cashew': ['magnesium', 'zinc', 'iron', 'copper'],
+    'peanut': ['protein', 'magnesium', 'folate', 'fiber'],
+    'pistachio': ['protein', 'fiber', 'potassium', 'vitamin B6'],
+    'sunflower seed': ['vitamin E', 'selenium', 'magnesium', 'copper'],
+    'pumpkin seed': ['magnesium', 'zinc', 'iron', 'copper'],
+    'flax': ['polyunsaturated fat', 'fiber', 'magnesium'],
+    'chia': ['fiber', 'calcium', 'magnesium', 'polyunsaturated fat'],
+    'sesame': ['calcium', 'magnesium', 'iron', 'zinc', 'copper'],
+    'olive oil': ['monounsaturated fat', 'vitamin E', 'vitamin K1'],
+    'coconut': ['manganese', 'copper', 'fiber'],
+    'honey': ['manganese', 'potassium'],
+    'dark chocolate': ['iron', 'magnesium', 'copper', 'manganese', 'fiber'],
+    'cocoa': ['iron', 'magnesium', 'copper', 'manganese'],
+    'mushroom': ['selenium', 'copper', 'vitamin D', 'zinc'],
+    'potato': ['potassium', 'vitamin C', 'vitamin B6', 'fiber'],
+    'corn': ['fiber', 'magnesium', 'potassium', 'manganese'],
+    'celery': ['vitamin K1', 'potassium', 'folate'],
+    'cucumber': ['vitamin K1', 'potassium'],
+    'zucchini': ['vitamin C', 'potassium', 'manganese'],
+    'squash': ['vitamin A', 'vitamin C', 'potassium', 'magnesium'],
+    'asparagus': ['folate', 'vitamin K1', 'iron', 'fiber'],
+    'cauliflower': ['vitamin C', 'vitamin K1', 'folate', 'fiber'],
+    'cabbage': ['vitamin C', 'vitamin K1', 'fiber'],
+    'lettuce': ['vitamin K1', 'folate', 'vitamin A'],
+    'parsley': ['vitamin K1', 'vitamin C', 'iron', 'folate'],
+    'cilantro': ['vitamin K1', 'vitamin A', 'vitamin C'],
+    'basil': ['vitamin K1', 'iron', 'calcium'],
+    'turmeric': ['iron', 'manganese', 'copper'],
+    'cinnamon': ['manganese', 'calcium', 'iron'],
+  };
+
+  const getIngredientNutrients = (ingredient) => {
+    const ingLower = ingredient.toLowerCase();
+    const matched = new Set();
+    for (const [key, nutrients] of Object.entries(INGREDIENT_NUTRIENT_MAP)) {
+      if (ingLower.includes(key)) {
+        nutrients.forEach(n => matched.add(n));
+      }
+    }
+    return Array.from(matched);
+  };
+
   return (
     <div className="dashboard bg-recipe">
       <div className="navbar">
@@ -156,14 +292,50 @@ function RecipeDetail() {
             {category}{category && area ? ' · ' : ''}{area}
           </p>
 
+          {/* Helps With */}
+          {helpsWithConditions.length > 0 && (
+            <div className="helps-with-section">
+              <h3 className="recipe-detail-heading">Helps With</h3>
+              <div className="helps-with-tags">
+                {helpsWithConditions.map((c, i) => (
+                  <span key={i} className="condition-tag">{c}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {ingredients.length > 0 && (
             <>
               <h3 className="recipe-detail-heading">Ingredients</h3>
-              <ul className="ingredients-list">
-                {ingredients.map((ing, i) => (
-                  <li key={i}>{ing}</li>
-                ))}
-              </ul>
+              <table className="ingredients-table">
+                <thead>
+                  <tr>
+                    <th>Ingredient</th>
+                    <th>Micro-nutrients</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ingredients.map((ing, i) => {
+                    const nutrients = getIngredientNutrients(ing);
+                    return (
+                      <tr key={i}>
+                        <td>{ing}</td>
+                        <td>
+                          {nutrients.length > 0 ? (
+                            <span className="ingredient-nutrients">
+                              {nutrients.map((n, j) => (
+                                <span key={j} className="nutrient-tag-sm">{n}</span>
+                              ))}
+                            </span>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </>
           )}
 

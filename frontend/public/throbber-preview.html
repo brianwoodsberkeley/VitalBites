@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Throbber Preview</title>
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #1a1a2e;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    color: white;
+  }
+  .spinner {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    animation: spin 1.2s linear infinite;
+    box-shadow: 0 4px 20px rgba(255, 165, 0, 0.4);
+    margin-bottom: 2rem;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .label {
+    font-size: 1.2rem;
+    opacity: 0.9;
+    margin-bottom: 0.5rem;
+  }
+  .counter {
+    font-size: 0.9rem;
+    opacity: 0.5;
+    margin-bottom: 1rem;
+  }
+  .timer-bar {
+    width: 200px;
+    height: 4px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 2rem;
+  }
+  .timer-fill {
+    height: 100%;
+    background: #f77f00;
+    border-radius: 2px;
+    transition: width 1s linear;
+  }
+  .controls {
+    display: flex;
+    gap: 1rem;
+  }
+  button {
+    padding: 0.5rem 1.5rem;
+    border: 1px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.1);
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  button:hover { background: rgba(255,255,255,0.2); }
+</style>
+</head>
+<body>
+  <div class="spinner" id="spinner"></div>
+  <div class="label" id="label"></div>
+  <div class="counter" id="counter"></div>
+  <div class="timer-bar"><div class="timer-fill" id="timerFill"></div></div>
+  <div class="controls">
+    <button onclick="prev()">Prev</button>
+    <button onclick="next()">Next</button>
+  </div>
+
+  <script>
+    const images = [
+      { file: 'throbbers/giorgio-trovato-YQVpD52cKpo-unsplash.jpg', name: '#1 giorgio-trovato' },
+      { file: 'throbbers/amjd-rdwan-8du-1nR9OkM-unsplash.jpg', name: '#2 amjd-rdwan' },
+      { file: 'throbbers/trac-vu-EovrNaCXeS0-unsplash.jpg', name: '#3 trac-vu' },
+      { file: 'throbbers/aby-zachariah-2DfjRspDYJE-unsplash.jpg', name: '#4 aby-zachariah' },
+      { file: 'throbbers/alien-beker-Jw3XXq4u7NU-unsplash.jpg', name: '#5 alien-beker' },
+      { file: 'throbbers/nick-fewings-UHpggTYXLYE-unsplash.jpg', name: '#6 nick-fewings' },
+      { file: 'throbbers/halim-rox-AETahyCi2Dc-unsplash.jpg', name: '#7 halim-rox' },
+      { file: 'throbbers/mustafa-akin-y5hcOQOqPJA-unsplash.jpg', name: '#8 mustafa-akin' },
+      { file: 'throbbers/lighten-up-E0FAAaKTjkU-unsplash.jpg', name: '#9 lighten-up' },
+      { file: 'throbbers/nikhil-SbX6tSMMsIk-unsplash.jpg', name: '#10 nikhil' },
+      { file: 'throbbers/sharan-pagadala-264Yk95Osm0-unsplash.jpg', name: '#11 sharan-pagadala' },
+      { file: 'throbbers/abdullah-nazeer-E3tj-mse3W4-unsplash.jpg', name: '#12 abdullah-nazeer' },
+    ];
+
+    let current = 0;
+    let timer = null;
+    let seconds = 0;
+
+    function show(index) {
+      current = index;
+      const img = images[current];
+      document.getElementById('spinner').style.backgroundImage = `url('${img.file}')`;
+      document.getElementById('label').textContent = img.name;
+      document.getElementById('counter').textContent = `${current + 1} of ${images.length}`;
+      seconds = 0;
+      document.getElementById('timerFill').style.width = '0%';
+      clearInterval(timer);
+      timer = setInterval(() => {
+        seconds++;
+        document.getElementById('timerFill').style.width = (seconds / 20 * 100) + '%';
+        if (seconds >= 20) next();
+      }, 1000);
+    }
+
+    function next() {
+      show((current + 1) % images.length);
+    }
+
+    function prev() {
+      show((current - 1 + images.length) % images.length);
+    }
+
+    show(0);
+  </script>
+</body>
+</html>
