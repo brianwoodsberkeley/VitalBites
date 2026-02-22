@@ -24,20 +24,21 @@ function RecipeDetail() {
     }
 
     // Check if recipe already has a YouTube link
-    if (recipe.strYoutube) {
-      setYoutubeUrl(recipe.strYoutube);
+    const existingYoutube = recipe.strYoutube || recipe.youtube;
+    if (existingYoutube) {
+      setYoutubeUrl(existingYoutube);
       setYoutubeTitle('Watch on YouTube');
-    } else {
-      // Fetch from our API
-      getRecipeYouTube(recipe.name || recipe.strMeal)
-        .then(data => {
-          if (data.youtube_url) {
-            setYoutubeUrl(data.youtube_url);
-            setYoutubeTitle(data.title || 'Watch on YouTube');
-          }
-        })
-        .catch(() => {});
     }
+
+    // Always also try our API for a better/fallback result
+    getRecipeYouTube(recipe.name || recipe.strMeal)
+      .then(data => {
+        if (data.youtube_url) {
+          setYoutubeUrl(data.youtube_url);
+          setYoutubeTitle(data.title || 'Watch on YouTube');
+        }
+      })
+      .catch(() => {});
   }, [recipe, userId, navigate]);
 
   const showToast = (message) => {
