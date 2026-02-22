@@ -360,6 +360,7 @@ function RecipeDetail() {
           )}
 
           {/* Action Buttons */}
+          <h3 className="recipe-detail-heading" style={{ borderTop: '1px solid var(--border)', paddingTop: '1.5rem', marginTop: '1.5rem' }}>Buy Recipe Now</h3>
           <div className="action-buttons-grid">
             <button className="action-btn action-btn-amazon" onClick={() => showToast('Amazon Fresh integration coming soon!')}>
               <img
