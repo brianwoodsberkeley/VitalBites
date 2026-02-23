@@ -199,6 +199,15 @@ export const getFeedbackHistoryByUser = async (userId, cookedOnly = false, skipp
   return response.json();
 };
 
+// Get a single recipe by ID (public, no auth)
+export const getRecipeById = async (recipeId) => {
+  const response = await fetch(`${API_URL}/recipe/${recipeId}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch recipe');
+  }
+  return response.json();
+};
+
 // Search YouTube for a recipe video
 export const getRecipeYouTube = async (name) => {
   const response = await fetch(`${API_URL}/recipe/youtube?name=${encodeURIComponent(name)}`);

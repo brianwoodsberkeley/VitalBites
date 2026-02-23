@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
-import { getRecipeYouTube, submitFeedback, isLoggedIn, logout, getCurrentUser } from '../services/api';
+import { getRecipeYouTube, getRecipeById, submitFeedback, isLoggedIn, logout, getCurrentUser } from '../services/api';
 import { ALL_AILMENTS } from '../data/ailments';
 import Logo from '../components/Logo';
 import '../styles.css';
@@ -9,8 +9,9 @@ function RecipeDetail() {
   const { userId, recipeId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const recipe = location.state?.recipe;
 
+  const [recipe, setRecipe] = useState(location.state?.recipe || null);
+  const [loading, setLoading] = useState(!location.state?.recipe);
   const [youtubeUrl, setYoutubeUrl] = useState(null);
   const [youtubeTitle, setYoutubeTitle] = useState(null);
   const [toast, setToast] = useState(null);
@@ -29,20 +30,40 @@ function RecipeDetail() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [navigate, userId]);
 
+  // Fetch recipe by ID if not passed via navigation state
   useEffect(() => {
-    if (!recipe) {
-      navigate(`/u/${userId}/dashboard`);
-      return;
+    if (!recipe && recipeId) {
+      setLoading(true);
+      getRecipeById(recipeId)
+        .then(data => {
+          setRecipe(data);
+          setLoading(false);
+        })
+        .catch(() => {
+          setLoading(false);
+        });
     }
+  }, [recipe, recipeId]);
 
-    // Check if recipe already has a YouTube link
+  // Set page title
+  useEffect(() => {
+    if (recipe) {
+      const recipeName = recipe.name || recipe.strMeal || 'Recipe';
+      document.title = `VitalFoods - ${recipeName}`;
+    }
+    return () => { document.title = 'VitalFoods'; };
+  }, [recipe]);
+
+  // Fetch YouTube link
+  useEffect(() => {
+    if (!recipe) return;
+
     const existingYoutube = recipe.strYoutube || recipe.youtube;
     if (existingYoutube) {
       setYoutubeUrl(existingYoutube);
       setYoutubeTitle('Watch on YouTube');
     }
 
-    // Always also try our API for a better/fallback result
     getRecipeYouTube(recipe.name || recipe.strMeal)
       .then(data => {
         if (data.youtube_url) {
@@ -51,7 +72,7 @@ function RecipeDetail() {
         }
       })
       .catch(() => {});
-  }, [recipe, userId, navigate]);
+  }, [recipe]);
 
   useEffect(() => {
     if (isLoggedIn()) {
@@ -94,7 +115,31 @@ function RecipeDetail() {
     navigate('/login');
   };
 
-  if (!recipe) return null;
+  if (loading) {
+    return (
+      <div className="dashboard bg-recipe">
+        <div className="navbar">
+          <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
+        </div>
+        <div className="dashboard-content">
+          <div className="loading-recipes">Loading recipe...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!recipe) {
+    return (
+      <div className="dashboard bg-recipe">
+        <div className="navbar">
+          <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
+        </div>
+        <div className="dashboard-content">
+          <div className="empty-message">Recipe not found.</div>
+        </div>
+      </div>
+    );
+  }
 
   // Parse ingredients from recipe, deduplicating
   const ingredientsRaw = [];

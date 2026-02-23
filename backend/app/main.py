@@ -36,7 +36,7 @@ app = FastAPI(title="Recipe Recommender API")
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "https://brianosaurus.com", "https://www.brianosaurus.com"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "https://vitalfoods.ai", "https://www.vitalfoods.ai"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -231,6 +231,47 @@ def get_feedback_history(
         cooked_only=cooked_only,
         skipped_only=skipped_only
     )
+
+# ============ Public Recipe Lookup ============
+
+@app.get("/recipe/{recipe_id}")
+async def get_recipe_by_id(recipe_id: str):
+    """Fetch a single recipe by TheMealDB ID (public, no auth)"""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://www.themealdb.com/api/json/v1/1/lookup.php?i={recipe_id}",
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            meals = data.get("meals")
+            if not meals:
+                raise HTTPException(status_code=404, detail="Recipe not found")
+
+            meal = meals[0]
+            ingredients = []
+            for i in range(1, 21):
+                ing = meal.get(f"strIngredient{i}")
+                measure = meal.get(f"strMeasure{i}")
+                if ing and ing.strip():
+                    ingredients.append(f"{measure.strip() + ' ' if measure and measure.strip() else ''}{ing.strip()}")
+
+            return {
+                "id": meal.get("idMeal"),
+                "name": meal.get("strMeal"),
+                "image": meal.get("strMealThumb"),
+                "category": meal.get("strCategory"),
+                "area": meal.get("strArea"),
+                "instructions": meal.get("strInstructions"),
+                "ingredients": ingredients,
+                "source": meal.get("strSource"),
+                "youtube": meal.get("strYoutube"),
+            }
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="Failed to fetch recipe")
 
 # ============ YouTube Search ============
 
