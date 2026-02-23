@@ -215,3 +215,4 @@ df_foodcom_recipes_filtered.parquet
 food.csv
 node_modules
 venv
+.env
