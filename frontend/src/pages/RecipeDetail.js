@@ -297,7 +297,23 @@ function RecipeDetail() {
       <div className="dashboard-content">
         <div className="recipe-detail-card">
           {image && <img src={image} alt={recipeName} className="recipe-detail-image" />}
-          <h1 className="recipe-detail-title">{recipeName}</h1>
+          <div className="recipe-detail-title-row">
+            <h1 className="recipe-detail-title">{recipeName}</h1>
+            <button
+              className="share-btn"
+              title="Copy link to share this recipe"
+              onClick={() => {
+                navigator.clipboard.writeText(window.location.href).then(() => {
+                  showToast('Link copied! Share it with friends.');
+                });
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M11 2.5a2.5 2.5 0 11-.603 1.628l-4.823 2.412a2.5 2.5 0 110 2.92l4.823 2.412a2.5 2.5 0 11.448.894l-4.823-2.412a2.5 2.5 0 110-4.708l4.823-2.412A2.5 2.5 0 0111 2.5z"/>
+              </svg>
+              Share
+            </button>
+          </div>
           <p className="recipe-detail-meta">
             {category}{category && area ? ' · ' : ''}{area}
           </p>
