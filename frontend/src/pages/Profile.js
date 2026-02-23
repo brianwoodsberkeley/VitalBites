@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getCurrentUser, updateAilments, isLoggedIn, logout } from '../services/api';
+import { useParams, useNavigate } from 'react-router-dom';
+import { getCurrentUser, updateAilments, isLoggedIn } from '../services/api';
 import { AILMENTS_BY_CATEGORY } from '../data/ailments';
-import Logo from '../components/Logo';
+import Navbar from '../components/Navbar';
+import Footer from '../components/Footer';
 import '../styles.css';
 
 function Profile() {
@@ -15,9 +16,8 @@ function Profile() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
 
-  const isOwner = isLoggedIn() && String(localStorage.getItem('userId')) === String(userId);
+  const backTo = `/u/${userId}/dashboard`;
 
   useEffect(() => {
     loadUser();
@@ -28,7 +28,10 @@ function Profile() {
       setLoading(true);
       const userData = await getCurrentUser();
       setUser(userData);
-      setSelectedAilments(userData.ailment_ids || []);
+      const ids = userData.ailments
+        ? userData.ailments.map(a => a.id)
+        : (userData.ailment_ids || []);
+      setSelectedAilments(ids);
     } catch (err) {
       console.error('Failed to load user:', err);
       navigate('/login');
@@ -66,73 +69,33 @@ function Profile() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
+  const menuItems = [
+    {
+      label: 'Dashboard',
+      icon: Navbar.ICON_DASHBOARD,
+      onClick: () => navigate(backTo),
+    },
+  ];
 
   if (loading) {
     return (
       <div className="dashboard bg-profile">
-        <div className="navbar">
-          <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
-        </div>
+        <Navbar backTo={backTo} />
         <div className="dashboard-content">
           <div className="loading-recipes">Loading profile...</div>
         </div>
+        <Footer />
       </div>
     );
   }
 
   return (
     <div className="dashboard bg-profile">
-      <div className="navbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button className="back-btn" onClick={() => navigate(`/u/${userId}/dashboard`)}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M10.354 3.354a.5.5 0 00-.708-.708l-5 5a.5.5 0 000 .708l5 5a.5.5 0 00.708-.708L5.707 8l4.647-4.646z"/>
-            </svg>
-            Back
-          </button>
-          <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
-        </div>
-        <div className="navbar-user">
-          <div className="hamburger-wrapper">
-            <button className="hamburger-btn" onClick={() => setMenuOpen(!menuOpen)}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                <rect y="3" width="20" height="2" rx="1" />
-                <rect y="9" width="20" height="2" rx="1" />
-                <rect y="15" width="20" height="2" rx="1" />
-              </svg>
-            </button>
-            {menuOpen && (
-              <>
-                <div className="hamburger-backdrop" onClick={() => setMenuOpen(false)} />
-                <div className="hamburger-menu">
-                  <div className="hamburger-menu-header">
-                    <div className="hamburger-menu-email">{user?.email}</div>
-                  </div>
-                  <button
-                    className="hamburger-menu-item"
-                    onClick={() => { setMenuOpen(false); navigate(`/u/${userId}/dashboard`); }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1l-7 6h3v6h3v-4h2v4h3V7h3L8 1z"/></svg>
-                    Dashboard
-                  </button>
-                  <div className="hamburger-menu-divider" />
-                  <button
-                    className="hamburger-menu-item hamburger-menu-item-danger"
-                    onClick={() => { setMenuOpen(false); handleLogout(); }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 2a1 1 0 00-1 1v2a1 1 0 002 0V4h5v8H7v-1a1 1 0 00-2 0v2a1 1 0 001 1h6a1 1 0 001-1V3a1 1 0 00-1-1H6z"/><path d="M1.293 7.293a1 1 0 000 1.414l2 2a1 1 0 001.414-1.414L4.414 9H10a1 1 0 000-2H4.414l.293-.293a1 1 0 00-1.414-1.414l-2 2z"/></svg>
-                    Sign Out
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <Navbar
+        backTo={backTo}
+        email={user?.email}
+        menuItems={menuItems}
+      />
 
       <div className="dashboard-content">
         <div className="recipe-detail-card">
@@ -188,6 +151,7 @@ function Profile() {
           </button>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

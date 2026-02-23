@@ -1,5 +1,5 @@
 /* ===================================================
-   VitalBites — Prospre-inspired clean design
+   VitalFoods AI — Prospre-inspired clean design
    Primary: #5734d8  Accent: #7c5ce7
    Background: #f5f6fa  Cards: #fff
    =================================================== */
@@ -2038,6 +2038,7 @@
 
 .landing-footer-links {
   display: flex;
+  align-items: center;
   gap: 1.5rem;
 }
 
@@ -2106,6 +2107,11 @@
     flex-direction: column;
     gap: 1rem;
     text-align: center;
+  }
+
+  .landing-footer-links {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 }
 

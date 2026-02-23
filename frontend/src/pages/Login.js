@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { login } from '../services/api';
 import Logo from '../components/Logo';
+import Footer from '../components/Footer';
 import '../styles.css';
 
 function Login() {
@@ -84,6 +85,7 @@ function Login() {
           Don't have an account? <Link to="/register" className="link">Create one</Link>
         </p>
       </div>
+      <Footer />
     </div>
   );
 }

@@ -4,7 +4,7 @@ function Logo({ height = 40, className = '' }) {
   return (
     <img
       src="/vital_bites_logo.jpg"
-      alt="VitalBites"
+      alt="VitalFoods AI"
       className={className}
       style={{
         height,

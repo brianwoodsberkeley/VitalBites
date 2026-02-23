@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AILMENTS_BY_CATEGORY } from '../data/ailments';
 import { register } from '../services/api';
 import Logo from '../components/Logo';
+import Footer from '../components/Footer';
 import '../styles.css';
 
 function Register() {
@@ -160,6 +161,7 @@ function Register() {
           Already have an account? <Link to="/login" className="link">Sign in</Link>
         </p>
       </div>
+      <Footer />
     </div>
   );
 }

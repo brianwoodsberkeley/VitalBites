@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
-import { getRecipeYouTube, getRecipeById, submitFeedback, isLoggedIn, logout, getCurrentUser } from '../services/api';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { getRecipeYouTube, getRecipeById, submitFeedback, isLoggedIn, getCurrentUser } from '../services/api';
 import { ALL_AILMENTS } from '../data/ailments';
-import Logo from '../components/Logo';
+import Navbar from '../components/Navbar';
+import Footer from '../components/Footer';
 import '../styles.css';
 
 function RecipeDetail() {
@@ -15,20 +16,28 @@ function RecipeDetail() {
   const [youtubeUrl, setYoutubeUrl] = useState(null);
   const [youtubeTitle, setYoutubeTitle] = useState(null);
   const [toast, setToast] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [userAilments, setUserAilments] = useState([]);
 
   const isOwner = isLoggedIn() && String(localStorage.getItem('userId')) === String(userId);
+  const backTo = `/u/${userId}/dashboard`;
+
+  const menuItems = isOwner ? [
+    {
+      label: 'Edit Profile',
+      icon: Navbar.ICON_PROFILE,
+      onClick: () => navigate(`/u/${userId}/profile`),
+    },
+  ] : [];
 
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        navigate(`/u/${userId}/dashboard`);
+        navigate(backTo);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, userId]);
+  }, [navigate, backTo]);
 
   // Fetch recipe by ID if not passed via navigation state
   useEffect(() => {
@@ -49,9 +58,9 @@ function RecipeDetail() {
   useEffect(() => {
     if (recipe) {
       const recipeName = recipe.name || recipe.strMeal || 'Recipe';
-      document.title = `VitalFoods - ${recipeName}`;
+      document.title = `${recipeName} — VitalFoods AI`;
     }
-    return () => { document.title = 'VitalFoods'; };
+    return () => { document.title = 'VitalFoods AI'; };
   }, [recipe]);
 
   // Fetch YouTube link
@@ -95,7 +104,7 @@ function RecipeDetail() {
   const handleCooked = async () => {
     try {
       await submitFeedback(recipe, true, false);
-      navigate(`/u/${userId}/dashboard`);
+      navigate(backTo);
     } catch (err) {
       console.error('Failed to mark as cooked:', err);
     }
@@ -104,26 +113,20 @@ function RecipeDetail() {
   const handleSkip = async () => {
     try {
       await submitFeedback(recipe, false, true);
-      navigate(`/u/${userId}/dashboard`);
+      navigate(backTo);
     } catch (err) {
       console.error('Failed to skip:', err);
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
   if (loading) {
     return (
       <div className="dashboard bg-recipe">
-        <div className="navbar">
-          <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
-        </div>
+        <Navbar backTo={backTo} />
         <div className="dashboard-content">
           <div className="loading-recipes">Loading recipe...</div>
         </div>
+        <Footer />
       </div>
     );
   }
@@ -131,12 +134,11 @@ function RecipeDetail() {
   if (!recipe) {
     return (
       <div className="dashboard bg-recipe">
-        <div className="navbar">
-          <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
-        </div>
+        <Navbar backTo={backTo} />
         <div className="dashboard-content">
           <div className="empty-message">Recipe not found.</div>
         </div>
+        <Footer />
       </div>
     );
   }
@@ -286,52 +288,11 @@ function RecipeDetail() {
 
   return (
     <div className="dashboard bg-recipe">
-      <div className="navbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button className="back-btn" onClick={() => navigate(`/u/${userId}/dashboard`)}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M10.354 3.354a.5.5 0 00-.708-.708l-5 5a.5.5 0 000 .708l5 5a.5.5 0 00.708-.708L5.707 8l4.647-4.646z"/>
-            </svg>
-            Back
-          </button>
-          <Link to="/" className="navbar-brand"><Logo height={32} /></Link>
-        </div>
-        <div className="navbar-user">
-          <div className="hamburger-wrapper">
-            <button className="hamburger-btn" onClick={() => setMenuOpen(!menuOpen)}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                <rect y="3" width="20" height="2" rx="1" />
-                <rect y="9" width="20" height="2" rx="1" />
-                <rect y="15" width="20" height="2" rx="1" />
-              </svg>
-            </button>
-            {menuOpen && (
-              <>
-                <div className="hamburger-backdrop" onClick={() => setMenuOpen(false)} />
-                <div className="hamburger-menu">
-                  {isOwner && (
-                    <button
-                      className="hamburger-menu-item"
-                      onClick={() => { setMenuOpen(false); navigate(`/u/${userId}/profile`); }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 1c-3.31 0-6 1.79-6 4v1h12v-1c0-2.21-2.69-4-6-4z"/></svg>
-                      Edit Profile
-                    </button>
-                  )}
-                  <div className="hamburger-menu-divider" />
-                  <button
-                    className="hamburger-menu-item hamburger-menu-item-danger"
-                    onClick={() => { setMenuOpen(false); handleLogout(); }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6 2a1 1 0 00-1 1v2a1 1 0 002 0V4h5v8H7v-1a1 1 0 00-2 0v2a1 1 0 001 1h6a1 1 0 001-1V3a1 1 0 00-1-1H6z"/><path d="M1.293 7.293a1 1 0 000 1.414l2 2a1 1 0 001.414-1.414L4.414 9H10a1 1 0 000-2H4.414l.293-.293a1 1 0 00-1.414-1.414l-2 2z"/></svg>
-                    Sign Out
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <Navbar
+        backTo={backTo}
+        email={null}
+        menuItems={menuItems}
+      />
 
       <div className="dashboard-content">
         <div className="recipe-detail-card">
@@ -473,6 +434,7 @@ function RecipeDetail() {
 
       {/* Toast notification */}
       {toast && <div className="toast">{toast}</div>}
+      <Footer />
     </div>
   );
 }

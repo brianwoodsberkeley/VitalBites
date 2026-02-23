@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AILMENTS_BY_CATEGORY } from '../data/ailments';
 import Logo from '../components/Logo';
+import Footer from '../components/Footer';
 import '../styles.css';
 
 const STEPS = [
@@ -112,7 +113,7 @@ function Home() {
       {/* Features */}
       <section className="landing-section landing-section-alt">
         <div className="landing-container">
-          <h2 className="landing-section-title">Why VitalBites</h2>
+          <h2 className="landing-section-title">Why VitalFoods AI</h2>
           <div className="landing-features">
             {FEATURES.map((f) => (
               <div key={f.title} className="landing-feature-card">
@@ -132,12 +133,12 @@ function Home() {
             <h2 className="landing-story-headline">Eat for how you want to feel.</h2>
             <p className="landing-story-lede">
               Your doctor says eat better. The internet gives you a million conflicting opinions.
-              VitalBites gives you actual recipes matched to your actual health needs — no guesswork,
+              VitalFoods AI gives you actual recipes matched to your actual health needs — no guesswork,
               no fad diets, no generic meal plans.
             </p>
             <p className="landing-story-body">
               Tell us what you're dealing with — anemia, high blood pressure, diabetes, osteoporosis,
-              or any of 20+ conditions — and VitalBites recommends recipes rich in the specific nutrients
+              or any of 20+ conditions — and VitalFoods AI recommends recipes rich in the specific nutrients
               your body needs while flagging the ones to avoid. Every recommendation is backed by real
               USDA FoodData Central nutritional data, verified down to the ingredient level across
               300,000+ recipes.
@@ -155,9 +156,9 @@ function Home() {
                 </p>
               </div>
               <div className="landing-story-col">
-                <h3 className="landing-story-col-title">What makes VitalBites different</h3>
+                <h3 className="landing-story-col-title">What makes VitalFoods AI different</h3>
                 <p>
-                  Most nutrition apps count calories. VitalBites understands the relationship between what
+                  Most nutrition apps count calories. VitalFoods AI understands the relationship between what
                   you eat and how you feel. Our knowledge graph maps the connections between ingredients,
                   nutrients, and health conditions using machine learning trained on millions of data points
                   from the USDA. The result is recommendations that a registered dietitian would
@@ -170,7 +171,7 @@ function Home() {
             <div className="landing-story-footer">
               <h3 className="landing-story-col-title">Built by researchers, grounded in science.</h3>
               <p>
-                VitalBites was created by a team of UC Berkeley graduate students in artificial intelligence
+                VitalFoods AI was created by a team of UC Berkeley graduate students in artificial intelligence
                 and data science. Every nutrient value comes from USDA FoodData Central. Every health
                 condition mapping is based on clinical nutrition guidelines. We built this because we believe
                 the gap between nutrition science and your dinner plate shouldn't require a PhD to close.
@@ -205,19 +206,7 @@ function Home() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="landing-footer">
-        <div className="landing-container landing-footer-inner">
-          <div className="landing-footer-brand">
-            <Logo height={28} />
-          </div>
-          <div className="landing-footer-links">
-            <Link to="/login" className="landing-footer-link">Sign In</Link>
-            <Link to="/register" className="landing-footer-link">Get Started</Link>
-          </div>
-          <p className="landing-footer-copy">&copy; 2026 VitalBites</p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
