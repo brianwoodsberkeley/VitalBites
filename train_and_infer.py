@@ -395,6 +395,7 @@ def train(
     seed: int = 42,
     upload_s3: str = None,
     config_path: str = None,
+    create_inverse_triples: bool = False,
 ):
     """
     Train RotatE on the extracted triples.
@@ -409,6 +410,7 @@ def train(
         upload_s3: Optional S3 URI to upload trained model after training.
                    e.g., "s3://vitalbites/models/latest"
         config_path: Path to mined_config.json — copied into model dir for portability.
+        create_inverse_triples: If True, adds inverse triples (8→16 relations). Improves MRR significantly.
     """
     from pykeen.pipeline import pipeline
     from pykeen.triples import TriplesFactory
@@ -447,7 +449,7 @@ def train(
     triples_path = download_if_url(triples_path, "triples.tsv")
 
     print(f"\nLoading triples from {triples_path}...")
-    tf = TriplesFactory.from_path(triples_path)
+    tf = TriplesFactory.from_path(triples_path, create_inverse_triples=create_inverse_triples)
     print(f"  Total triples:    {tf.num_triples}")
     print(f"  Unique entities:  {tf.num_entities}")
     print(f"  Unique relations: {tf.num_relations}")
@@ -457,7 +459,7 @@ def train(
     print(f"  Validation split: {validation.num_triples}")
     print(f"  Test split:       {testing.num_triples}")
 
-    print(f"\nTraining RotatE (dim={embedding_dim}, epochs={epochs})...")
+    print(f"\nTraining RotatE (dim={embedding_dim}, epochs={epochs}, inverse_triples={create_inverse_triples})...")
 
     result = pipeline(
         training=training,
@@ -922,6 +924,8 @@ Examples:
     sps["train"].add_argument("--batch-size", type=int, default=256)
     sps["train"].add_argument("--lr", type=float, default=1e-3)
     sps["train"].add_argument("--num-negs", type=int, default=64)
+    sps["train"].add_argument("--create-inverse-triples", action="store_true", default=False,
+                               help="Add inverse triples to improve MRR (doubles relation count)")
     sps["train"].add_argument("--upload-s3", default=None,
                                help="S3 URI to upload model after training (e.g., s3://vitalbites/models/latest)")
 
@@ -967,6 +971,7 @@ Examples:
                 num_negs=args.num_negs,
                 upload_s3=args.upload_s3,
                 config_path=config_path,
+                create_inverse_triples=args.create_inverse_triples,
             )
         finally:
             cleanup_downloads()
