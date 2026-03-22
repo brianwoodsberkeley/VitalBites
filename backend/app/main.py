@@ -10,7 +10,7 @@ from .models import User, Ailment, RecipeFeedback
 from .schemas import (
     UserCreate, UserOut, AilmentOut, Token,
     RecipeFeedbackCreate, RecipeFeedbackOut, RecommendationsResponse,
-    YouTubeResponse
+    YouTubeResponse, NutrientProfileUpdate
 )
 from .auth import (
     get_password_hash,
@@ -150,6 +150,27 @@ def update_user_ailments(
     """Update current user's ailments"""
     ailments = db.query(Ailment).filter(Ailment.id.in_(ailment_ids)).all()
     current_user.ailments = ailments
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+@app.put("/users/me/profile", response_model=UserOut)
+def update_user_profile(
+    profile: NutrientProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update current user's biometric profile for nutrient targets"""
+    if profile.height_cm is not None:
+        current_user.height_cm = profile.height_cm
+    if profile.weight_kg is not None:
+        current_user.weight_kg = profile.weight_kg
+    if profile.age is not None:
+        current_user.age = profile.age
+    if profile.sex is not None:
+        current_user.sex = profile.sex
+    if profile.activity_level is not None:
+        current_user.activity_level = profile.activity_level
     db.commit()
     db.refresh(current_user)
     return current_user

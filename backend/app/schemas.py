@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import List, Optional
+from typing import List, Literal, Optional
 from datetime import datetime
 
 # Ailment schemas
@@ -25,11 +25,23 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str = Field(..., max_length=60)
 
+class NutrientProfileUpdate(BaseModel):
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    age: Optional[int] = None
+    sex: Optional[Literal["male", "female"]] = None
+    activity_level: Optional[Literal["sedentary", "light", "moderate", "active", "very_active"]] = None
+
 class UserOut(BaseModel):
     id: int
     email: str
     created_at: datetime
     ailments: List[AilmentOut]
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    age: Optional[int] = None
+    sex: Optional[str] = None
+    activity_level: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -55,6 +67,9 @@ class RecipeOut(BaseModel):
     youtube: Optional[str] = None
     previously_cooked: bool = False
     restrictions_applied: List[str] = []
+    kg_score: Optional[float] = None
+    kg_nutrients: Optional[List[str]] = None
+    nutrient_targets: Optional[dict] = None
 
 class RecipeFeedbackCreate(BaseModel):
     recipe_id: str

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AILMENTS_BY_CATEGORY } from '../data/ailments';
-import { register } from '../services/api';
+import { register, login } from '../services/api';
 import Logo from '../components/Logo';
 import Footer from '../components/Footer';
 import '../styles.css';
@@ -52,7 +52,9 @@ function Register() {
 
     try {
       await register(email, password, selectedAilments);
-      navigate('/login', { state: { message: 'Registration successful! Please log in.' } });
+      await login(email, password);
+      const userId = localStorage.getItem('userId');
+      navigate(userId ? `/u/${userId}/nutrient-profile` : '/nutrient-profile');
     } catch (err) {
       setError(err.message);
     } finally {

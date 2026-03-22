@@ -54,9 +54,10 @@ function RecipeDetail() {
     }
   }, [recipe, recipeId]);
 
-  // Set page title
+  // Set page title & debug log
   useEffect(() => {
     if (recipe) {
+      console.log('[RecipeDetail] Full recipe record:', recipe);
       const recipeName = recipe.name || recipe.strMeal || 'Recipe';
       document.title = `${recipeName} — VitalFoods AI`;
     }

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from .models import User, RecipeFeedback
+from avoid_ingredients import get_avoid_ingredients
+from nutrient_targets import compute_nutrient_targets
 
 # TheMealDB API - free, no API key required
 MEALDB_API_BASE = "https://www.themealdb.com/api/json/v1/1"
@@ -272,6 +274,156 @@ def get_mock_recipes(count: int = 10) -> List[dict]:
     return random.sample(MOCK_RECIPES, min(count, len(MOCK_RECIPES)))
 
 
+# ============ Nutrient-based ranking ============
+
+# Map ingredients to the macro/micro nutrients they provide.
+# Keys are lowercase substrings matched against ingredient names.
+INGREDIENT_NUTRIENT_MAP = {
+    "salmon":   {"protein", "fat", "polyunsaturated fat"},
+    "tuna":     {"protein", "fat"},
+    "cod":      {"protein"},
+    "shrimp":   {"protein"},
+    "sardine":  {"protein", "fat", "calcium"},
+    "mackerel": {"protein", "fat"},
+    "chicken":  {"protein"},
+    "turkey":   {"protein"},
+    "beef":     {"protein", "iron"},
+    "lamb":     {"protein", "iron"},
+    "pork":     {"protein"},
+    "egg":      {"protein", "fat", "cholesterol"},
+    "tofu":     {"protein", "calcium", "iron"},
+    "lentil":   {"protein", "fiber", "iron"},
+    "chickpea": {"protein", "fiber", "iron"},
+    "bean":     {"protein", "fiber", "iron"},
+    "pea":      {"protein", "fiber"},
+    "quinoa":   {"protein", "fiber", "carbohydrate"},
+    "oat":      {"fiber", "carbohydrate", "iron"},
+    "rice":     {"carbohydrate"},
+    "pasta":    {"carbohydrate"},
+    "bread":    {"carbohydrate", "fiber"},
+    "potato":   {"carbohydrate", "potassium", "fiber"},
+    "sweet potato": {"carbohydrate", "fiber", "potassium"},
+    "corn":     {"carbohydrate", "fiber"},
+    "avocado":  {"fat", "fiber", "potassium"},
+    "olive oil": {"fat"},
+    "coconut":  {"fat"},
+    "butter":   {"fat", "saturated fat", "cholesterol"},
+    "cream":    {"fat", "saturated fat"},
+    "cheese":   {"protein", "fat", "saturated fat", "calcium", "sodium"},
+    "milk":     {"protein", "calcium"},
+    "yogurt":   {"protein", "calcium"},
+    "almond":   {"fat", "fiber", "magnesium"},
+    "walnut":   {"fat", "fiber"},
+    "peanut":   {"protein", "fat"},
+    "spinach":  {"iron", "fiber", "magnesium"},
+    "kale":     {"fiber", "calcium", "iron"},
+    "broccoli": {"fiber", "vitamin C"},
+    "carrot":   {"fiber", "potassium"},
+    "tomato":   {"potassium", "vitamin C"},
+    "onion":    {"fiber"},
+    "garlic":   set(),
+    "ginger":   set(),
+    "lemon":    {"vitamin C"},
+    "honey":    {"sugar"},
+    "sugar":    {"sugar"},
+    "soy sauce": {"sodium"},
+    "salt":     {"sodium"},
+}
+
+# Nutrient target keys → ingredient nutrient tags that contribute to them.
+TARGET_TO_INGREDIENT_NUTRIENTS = {
+    "protein_g":       {"protein"},
+    "carbs_g":         {"carbohydrate"},
+    "fat_g":           {"fat"},
+    "fiber_g":         {"fiber"},
+    "sodium_mg":       {"sodium"},
+    "cholesterol_mg":  {"cholesterol"},
+    "saturated_fat_g": {"saturated fat"},
+    "sugar_g":         {"sugar"},
+}
+
+# Weights for nutrient distance scoring — how important each target is
+# for ranking. Higher weight = more influence on ranking.
+NUTRIENT_WEIGHTS = {
+    "protein_g":       1.0,
+    "carbs_g":         0.8,
+    "fat_g":           0.6,
+    "fiber_g":         1.0,
+    "sodium_mg":       1.2,  # caps are clinically important
+    "cholesterol_mg":  0.8,
+    "saturated_fat_g": 1.0,
+    "sugar_g":         1.0,
+}
+
+
+def _recipe_ingredient_nutrients(recipe: dict) -> set:
+    """Derive the set of nutrient tags a recipe provides from its ingredients."""
+    nutrients = set()
+    for ing in recipe.get("ingredients", []):
+        ing_lower = ing.lower()
+        for key, tags in INGREDIENT_NUTRIENT_MAP.items():
+            if key in ing_lower:
+                nutrients.update(tags)
+    return nutrients
+
+
+def _nutrient_relevance_score(recipe: dict, targets: dict, user_needs: set) -> float:
+    """
+    Score a recipe by how well its ingredient-derived nutrients align
+    with the user's nutrient targets.  Lower score = better match.
+
+    Recipes that provide nutrients the user needs (based on ailment 'needs')
+    are ranked higher. Recipes containing nutrients that should be limited
+    (caps in targets) are penalised.
+    """
+    recipe_nutrients = _recipe_ingredient_nutrients(recipe)
+
+    score = 0.0
+
+    # Reward: recipe provides nutrients the user needs
+    for nutrient_tag in recipe_nutrients:
+        if nutrient_tag in user_needs:
+            score -= 1.0  # lower is better
+
+    # Penalise: recipe is high in nutrients that have low caps
+    # (sodium, saturated fat, sugar, cholesterol)
+    cap_nutrients = {
+        "sodium":        ("sodium_mg",       2300.0),
+        "saturated fat": ("saturated_fat_g", None),
+        "sugar":         ("sugar_g",         None),
+        "cholesterol":   ("cholesterol_mg",  300.0),
+    }
+    for nutrient_tag, (target_key, default_cap) in cap_nutrients.items():
+        if nutrient_tag in recipe_nutrients:
+            target_val = targets.get(target_key, default_cap)
+            if target_val is not None and default_cap is not None:
+                # The more restrictive the cap vs default, the bigger the penalty
+                restriction_ratio = 1.0 - (target_val / default_cap)
+                if restriction_ratio > 0:
+                    score += NUTRIENT_WEIGHTS.get(target_key, 1.0) * restriction_ratio
+
+    return score
+
+
+def _compute_user_targets(user: "User") -> Optional[dict]:
+    """Compute nutrient targets if the user has biometric data."""
+    if not all([user.height_cm, user.weight_kg, user.age, user.sex, user.activity_level]):
+        return None
+    try:
+        condition_names = {a.name for a in user.ailments}
+        return compute_nutrient_targets(
+            height_cm=user.height_cm,
+            weight_kg=user.weight_kg,
+            age=user.age,
+            sex=user.sex,
+            activity_level=user.activity_level,
+            health_conditions=condition_names,
+        )
+    except Exception as e:
+        print(f"[recommender] compute_nutrient_targets failed: {e}")
+        return None
+
+
 # ============ Main Recommendation Logic ============
 
 async def get_recommendations(
@@ -318,11 +470,38 @@ async def get_recommendations(
         recipes = get_mock_recipes(count * 2)
 
     recipes = [r for r in recipes if r["id"] not in skipped_ids]
-    random.shuffle(recipes)
+
+    # Filter out recipes containing ingredients the user should avoid
+    if user.ailments:
+        condition_names = {a.name for a in user.ailments}
+        all_ingredients = set()
+        for r in recipes:
+            all_ingredients.update(r.get("ingredients", []))
+        if all_ingredients:
+            result = get_avoid_ingredients(condition_names, all_ingredients)
+            avoid_set = {ing.lower() for ing in result.get("unified", set())}
+            if avoid_set:
+                recipes = [
+                    r for r in recipes
+                    if not any(ing.lower() in avoid_set for ing in r.get("ingredients", []))
+                ]
+
+    # Rank by nutrient-distance if user has biometric data, else random
+    targets = _compute_user_targets(user)
+    if targets and user.ailments:
+        user_needs = set()
+        for ailment in user.ailments:
+            if ailment.needs:
+                user_needs.update(n.strip().lower() for n in ailment.needs.split(","))
+        recipes.sort(key=lambda r: _nutrient_relevance_score(r, targets, user_needs))
+    else:
+        random.shuffle(recipes)
 
     for recipe in recipes:
         recipe["previously_cooked"] = recipe["id"] in cooked_ids
         recipe["restrictions_applied"] = restrictions
+        if targets:
+            recipe["nutrient_targets"] = targets
 
     return recipes[:count]
 
@@ -392,10 +571,35 @@ async def _kg_recommendations(
         recipe["restrictions_applied"] = restrictions
         recipes.append(recipe)
 
-        if len(recipes) >= count:
-            break
+    # Filter with avoid_ingredients (Step 1 of pipeline — before ranking)
+    condition_names = {a.name for a in user.ailments}
+    all_ingredients = set()
+    for r in recipes:
+        all_ingredients.update(r.get("ingredients", []))
+    if all_ingredients:
+        result = get_avoid_ingredients(condition_names, all_ingredients)
+        avoid_set = {ing.lower() for ing in result.get("unified", set())}
+        if avoid_set:
+            recipes = [
+                r for r in recipes
+                if not any(ing.lower() in avoid_set for ing in r.get("ingredients", []))
+            ]
 
-    return recipes
+    # Re-rank with nutrient-distance scoring (Step 5 of pipeline)
+    targets = _compute_user_targets(user)
+    if targets:
+        user_needs = set()
+        for ailment in user.ailments:
+            if ailment.needs:
+                user_needs.update(n.strip().lower() for n in ailment.needs.split(","))
+        # Combined score: KG score (RotatE distance) + nutrient relevance
+        recipes.sort(key=lambda r: (
+            r.get("kg_score", 0) + _nutrient_relevance_score(r, targets, user_needs)
+        ))
+        for recipe in recipes:
+            recipe["nutrient_targets"] = targets
+
+    return recipes[:count]
 
 
 # ============ Feedback Helpers (unchanged) ============

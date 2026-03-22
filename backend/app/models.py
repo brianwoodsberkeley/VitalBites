@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Table, ForeignKey, DateTime, Boolean, Text
+from sqlalchemy import Column, Integer, Float, String, Table, ForeignKey, DateTime, Boolean, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -18,6 +18,11 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    height_cm = Column(Float, nullable=True)
+    weight_kg = Column(Float, nullable=True)
+    age = Column(Integer, nullable=True)
+    sex = Column(String, nullable=True)
+    activity_level = Column(String, nullable=True)
 
     ailments = relationship('Ailment', secondary=user_ailments, back_populates='users')
     recipe_feedback = relationship('RecipeFeedback', back_populates='user')

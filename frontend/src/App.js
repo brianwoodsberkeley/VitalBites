@@ -6,6 +6,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import RecipeDetail from './pages/RecipeDetail';
 import Profile from './pages/Profile';
+import NutrientProfile from './pages/NutrientProfile';
 import { isLoggedIn } from './services/api';
 
 // Protected route wrapper
@@ -25,6 +26,7 @@ function App() {
         <Route path="/u/:userId/dashboard" element={<Dashboard />} />
         <Route path="/u/:userId/recipe/:recipeId" element={<RecipeDetail />} />
         <Route path="/u/:userId/profile" element={<Profile />} />
+        <Route path="/u/:userId/nutrient-profile" element={<NutrientProfile />} />
         <Route
           path="/dashboard"
           element={

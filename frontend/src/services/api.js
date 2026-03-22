@@ -101,6 +101,24 @@ export const updateAilments = async (ailmentIds) => {
   return response.json();
 };
 
+// Update user biometric profile
+export const updateProfile = async (profileData) => {
+  const response = await fetch(`${API_URL}/users/me/profile`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(profileData),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to update profile');
+  }
+
+  return response.json();
+};
+
 // Check if user is logged in
 export const isLoggedIn = () => {
   return !!localStorage.getItem('token');

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getCurrentUser, updateAilments, isLoggedIn } from '../services/api';
+import { getCurrentUser, updateAilments, updateProfile, isLoggedIn } from '../services/api';
 import { AILMENTS_BY_CATEGORY } from '../data/ailments';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -12,6 +12,11 @@ function Profile() {
 
   const [user, setUser] = useState(null);
   const [selectedAilments, setSelectedAilments] = useState([]);
+  const [heightCm, setHeightCm] = useState('');
+  const [weightKg, setWeightKg] = useState('');
+  const [age, setAge] = useState('');
+  const [sex, setSex] = useState('');
+  const [activityLevel, setActivityLevel] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
@@ -32,6 +37,11 @@ function Profile() {
         ? userData.ailments.map(a => a.id)
         : (userData.ailment_ids || []);
       setSelectedAilments(ids);
+      setHeightCm(userData.height_cm || '');
+      setWeightKg(userData.weight_kg || '');
+      setAge(userData.age || '');
+      setSex(userData.sex || '');
+      setActivityLevel(userData.activity_level || '');
     } catch (err) {
       console.error('Failed to load user:', err);
       navigate('/login');
@@ -59,7 +69,17 @@ function Profile() {
     setSuccess('');
 
     try {
-      await updateAilments(selectedAilments);
+      const profileData = {};
+      if (heightCm) profileData.height_cm = parseFloat(heightCm);
+      if (weightKg) profileData.weight_kg = parseFloat(weightKg);
+      if (age) profileData.age = parseInt(age, 10);
+      if (sex) profileData.sex = sex;
+      if (activityLevel) profileData.activity_level = activityLevel;
+
+      await Promise.all([
+        updateAilments(selectedAilments),
+        Object.keys(profileData).length > 0 ? updateProfile(profileData) : Promise.resolve(),
+      ]);
       setSuccess('Health profile updated successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
@@ -104,6 +124,95 @@ function Profile() {
 
           {error && <div className="error">{error}</div>}
           {success && <div className="success">{success}</div>}
+
+          <div className="form-group">
+            <label className="label">Body Metrics</label>
+            <p style={{ fontSize: '0.8rem', color: '#666', marginBottom: '0.5rem' }}>
+              Used to calculate your personalized daily nutrient targets
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div>
+                <label className="label">Height (cm)</label>
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="e.g. 170"
+                  min="50"
+                  max="300"
+                  step="0.1"
+                  value={heightCm}
+                  onChange={(e) => setHeightCm(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Weight (kg)</label>
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="e.g. 70"
+                  min="20"
+                  max="500"
+                  step="0.1"
+                  value={weightKg}
+                  onChange={(e) => setWeightKg(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Age</label>
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="e.g. 30"
+                  min="1"
+                  max="150"
+                  value={age}
+                  onChange={(e) => setAge(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Sex</label>
+                <div className="radio-group" style={{ paddingTop: '0.5rem' }}>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="sex"
+                      value="male"
+                      checked={sex === 'male'}
+                      onChange={(e) => setSex(e.target.value)}
+                    />
+                    Male
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="sex"
+                      value="female"
+                      checked={sex === 'female'}
+                      onChange={(e) => setSex(e.target.value)}
+                    />
+                    Female
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Activity Level</label>
+              <select
+                className="input"
+                value={activityLevel}
+                onChange={(e) => setActivityLevel(e.target.value)}
+              >
+                <option value="">Select activity level</option>
+                <option value="sedentary">Sedentary (little or no exercise)</option>
+                <option value="light">Lightly Active (1–3 days/week)</option>
+                <option value="moderate">Moderately Active (3–5 days/week)</option>
+                <option value="active">Active (6–7 days/week)</option>
+                <option value="very_active">Very Active (physical job or 2x/day)</option>
+              </select>
+            </div>
+          </div>
 
           <div className="form-group">
             <label className="label">Health Conditions</label>
