@@ -12,8 +12,9 @@ function Profile() {
 
   const [user, setUser] = useState(null);
   const [selectedAilments, setSelectedAilments] = useState([]);
-  const [heightCm, setHeightCm] = useState('');
-  const [weightKg, setWeightKg] = useState('');
+  const [heightFt, setHeightFt] = useState('');
+  const [heightIn, setHeightIn] = useState('');
+  const [weightLbs, setWeightLbs] = useState('');
   const [age, setAge] = useState('');
   const [sex, setSex] = useState('');
   const [activityLevel, setActivityLevel] = useState('');
@@ -37,8 +38,14 @@ function Profile() {
         ? userData.ailments.map(a => a.id)
         : (userData.ailment_ids || []);
       setSelectedAilments(ids);
-      setHeightCm(userData.height_cm || '');
-      setWeightKg(userData.weight_kg || '');
+      if (userData.height_cm) {
+        const totalInches = userData.height_cm / 2.54;
+        setHeightFt(Math.floor(totalInches / 12).toString());
+        setHeightIn(Math.round(totalInches % 12).toString());
+      }
+      if (userData.weight_kg) {
+        setWeightLbs(Math.round(userData.weight_kg * 2.20462).toString());
+      }
       setAge(userData.age || '');
       setSex(userData.sex || '');
       setActivityLevel(userData.activity_level || '');
@@ -70,8 +77,11 @@ function Profile() {
 
     try {
       const profileData = {};
-      if (heightCm) profileData.height_cm = parseFloat(heightCm);
-      if (weightKg) profileData.weight_kg = parseFloat(weightKg);
+      if (heightFt || heightIn) {
+        const totalInches = (parseFloat(heightFt) || 0) * 12 + (parseFloat(heightIn) || 0);
+        profileData.height_cm = Math.round(totalInches * 2.54 * 10) / 10;
+      }
+      if (weightLbs) profileData.weight_kg = Math.round(parseFloat(weightLbs) / 2.20462 * 10) / 10;
       if (age) profileData.age = parseInt(age, 10);
       if (sex) profileData.sex = sex;
       if (activityLevel) profileData.activity_level = activityLevel;
@@ -133,29 +143,43 @@ function Profile() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
               <div>
-                <label className="label">Height (cm)</label>
-                <input
-                  type="number"
-                  className="input"
-                  placeholder="e.g. 170"
-                  min="50"
-                  max="300"
-                  step="0.1"
-                  value={heightCm}
-                  onChange={(e) => setHeightCm(e.target.value)}
-                />
+                <label className="label">Height</label>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    className="input"
+                    placeholder="ft"
+                    min="1"
+                    max="8"
+                    value={heightFt}
+                    onChange={(e) => setHeightFt(e.target.value)}
+                    style={{ width: '70px' }}
+                  />
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>ft</span>
+                  <input
+                    type="number"
+                    className="input"
+                    placeholder="in"
+                    min="0"
+                    max="11"
+                    value={heightIn}
+                    onChange={(e) => setHeightIn(e.target.value)}
+                    style={{ width: '70px' }}
+                  />
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>in</span>
+                </div>
               </div>
               <div>
-                <label className="label">Weight (kg)</label>
+                <label className="label">Weight (lbs)</label>
                 <input
                   type="number"
                   className="input"
-                  placeholder="e.g. 70"
-                  min="20"
-                  max="500"
-                  step="0.1"
-                  value={weightKg}
-                  onChange={(e) => setWeightKg(e.target.value)}
+                  placeholder="e.g. 155"
+                  min="40"
+                  max="1000"
+                  step="1"
+                  value={weightLbs}
+                  onChange={(e) => setWeightLbs(e.target.value)}
                 />
               </div>
               <div>
