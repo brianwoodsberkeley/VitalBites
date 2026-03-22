@@ -78,6 +78,27 @@ The frontend will serve at http://localhost:3000.
 
 **Important:** Set `REACT_APP_API_URL=http://localhost:8000` explicitly to ensure the frontend talks to your local backend. If this env var is set globally to a production URL, the frontend will call the wrong server.
 
+### 6. Set up Knowledge Graph model files (optional)
+
+If you have a trained RotatE model, copy the following files into `backend/models/`:
+
+```bash
+mkdir -p backend/models
+
+cp trained_model/entity_to_id.json     backend/models/
+cp trained_model/relation_to_id.json   backend/models/
+cp trained_model/entity_embeddings.npy backend/models/
+cp trained_model/relation_embeddings.npy backend/models/
+```
+
+Also copy `mined_config.json` if available:
+
+```bash
+cp mined_config.json backend/models/
+```
+
+Without these files the app still works — it falls back to TheMealDB/mock recipes instead of KG-based recommendations.
+
 ## Usage
 
 1. Go to http://localhost:3000/register
