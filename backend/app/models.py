@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, Table, ForeignKey, DateTime, Boolean, Text
+from sqlalchemy import Column, Integer, Float, String, Table, ForeignKey, DateTime, Boolean, Text, ARRAY
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -54,3 +54,10 @@ class RecipeFeedback(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship('User', back_populates='recipe_feedback')
+
+class RecipeNutrient(Base):
+    __tablename__ = 'recipe_nutrients'
+
+    id = Column(Integer, primary_key=True, index=True)
+    recipe_name = Column(String, nullable=False, index=True)
+    nutrients = Column(ARRAY(String), nullable=False)

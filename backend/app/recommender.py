@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from .models import User, RecipeFeedback
+from .models import User, RecipeFeedback, RecipeNutrient
 from avoid_ingredients import get_avoid_ingredients
 from nutrient_targets import compute_nutrient_targets
 
@@ -367,7 +367,27 @@ def _recipe_ingredient_nutrients(recipe: dict) -> set:
     return nutrients
 
 
-def _nutrient_relevance_score(recipe: dict, targets: dict, user_needs: set) -> float:
+def _bulk_lookup_nutrients(db: Session, recipe_names: List[str]) -> dict:
+    """Look up nutrients for recipes from the recipe_nutrients table.
+    Returns a dict of recipe_name (lowercase) -> set of nutrient names."""
+    if not recipe_names:
+        return {}
+    rows = db.query(RecipeNutrient.recipe_name, RecipeNutrient.nutrients).filter(
+        RecipeNutrient.recipe_name.in_(recipe_names)
+    ).all()
+    return {row.recipe_name.lower(): set(row.nutrients) for row in rows}
+
+
+def _get_recipe_nutrients(recipe: dict, db_nutrients: dict) -> set:
+    """Get nutrients for a recipe: prefer DB lookup, fall back to ingredient map."""
+    name = (recipe.get("name") or "").lower()
+    if name in db_nutrients:
+        return db_nutrients[name]
+    return _recipe_ingredient_nutrients(recipe)
+
+
+def _nutrient_relevance_score(recipe: dict, targets: dict, user_needs: set,
+                               db_nutrients: dict = None) -> float:
     """
     Score a recipe by how well its ingredient-derived nutrients align
     with the user's nutrient targets.  Lower score = better match.
@@ -376,7 +396,10 @@ def _nutrient_relevance_score(recipe: dict, targets: dict, user_needs: set) -> f
     are ranked higher. Recipes containing nutrients that should be limited
     (caps in targets) are penalised.
     """
-    recipe_nutrients = _recipe_ingredient_nutrients(recipe)
+    if db_nutrients is not None:
+        recipe_nutrients = _get_recipe_nutrients(recipe, db_nutrients)
+    else:
+        recipe_nutrients = _recipe_ingredient_nutrients(recipe)
 
     score = 0.0
 
@@ -387,9 +410,11 @@ def _nutrient_relevance_score(recipe: dict, targets: dict, user_needs: set) -> f
 
     # Penalise: recipe is high in nutrients that have low caps
     # (sodium, saturated fat, sugar, cholesterol)
+    # Keys cover both ingredient-map tags and DB nutrient names
     cap_nutrients = {
         "sodium":        ("sodium_mg",       2300.0),
         "saturated fat": ("saturated_fat_g", None),
+        "saturated_fat": ("saturated_fat_g", None),
         "sugar":         ("sugar_g",         None),
         "cholesterol":   ("cholesterol_mg",  300.0),
     }
@@ -460,7 +485,7 @@ async def get_recommendations(
     # -- Try KG-based recommendations --
     kg = get_kg_engine()
     if kg and user.ailments:
-        recipes = await _kg_recommendations(kg, user, count, skipped_ids, cooked_ids, restrictions)
+        recipes = await _kg_recommendations(kg, user, count, skipped_ids, cooked_ids, restrictions, db)
         if recipes:
             return recipes
 
@@ -493,7 +518,10 @@ async def get_recommendations(
         for ailment in user.ailments:
             if ailment.needs:
                 user_needs.update(n.strip().lower() for n in ailment.needs.split(","))
-        recipes.sort(key=lambda r: _nutrient_relevance_score(r, targets, user_needs))
+        # Bulk-lookup nutrients from DB for all candidate recipes
+        recipe_names = [r.get("name", "") for r in recipes]
+        db_nutrients = _bulk_lookup_nutrients(db, recipe_names)
+        recipes.sort(key=lambda r: _nutrient_relevance_score(r, targets, user_needs, db_nutrients))
     else:
         random.shuffle(recipes)
 
@@ -513,6 +541,7 @@ async def _kg_recommendations(
     skipped_ids: set,
     cooked_ids: set,
     restrictions: List[str],
+    db: Session = None,
 ) -> List[dict]:
     """
     Use the KG inference engine to get ailment-based recommendations.
@@ -592,9 +621,14 @@ async def _kg_recommendations(
         for ailment in user.ailments:
             if ailment.needs:
                 user_needs.update(n.strip().lower() for n in ailment.needs.split(","))
+        # Bulk-lookup nutrients from DB for all candidate recipes
+        db_nutrients = {}
+        if db:
+            recipe_names = [r.get("name", "") for r in recipes]
+            db_nutrients = _bulk_lookup_nutrients(db, recipe_names)
         # Combined score: KG score (RotatE distance) + nutrient relevance
         recipes.sort(key=lambda r: (
-            r.get("kg_score", 0) + _nutrient_relevance_score(r, targets, user_needs)
+            r.get("kg_score", 0) + _nutrient_relevance_score(r, targets, user_needs, db_nutrients)
         ))
         for recipe in recipes:
             recipe["nutrient_targets"] = targets

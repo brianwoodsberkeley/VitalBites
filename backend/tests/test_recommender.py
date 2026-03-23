@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.recommender import (
     _recipe_ingredient_nutrients,
     _nutrient_relevance_score,
+    _get_recipe_nutrients,
     _compute_user_targets,
     NUTRIENT_WEIGHTS,
 )
@@ -399,3 +400,104 @@ class TestKGRecommendations:
 
         assert recipes[0]["previously_cooked"] is True
         assert recipes[0]["restrictions_applied"] == ["sodium"]
+
+
+# ============ DB Nutrient Integration ============
+
+class TestDBNutrientIntegration:
+    """Test that DB nutrients are used for scoring when available."""
+
+    TARGETS = {
+        "kcal": 2000, "protein_g": 80, "carbs_g": 250, "fat_g": 67,
+        "saturated_fat_g": 13, "fiber_g": 30, "sugar_g": 25,
+        "sodium_mg": 1500, "cholesterol_mg": 300,
+    }
+    USER_NEEDS = {"potassium", "fiber", "iron", "protein", "calcium"}
+
+    def test_db_nutrients_preferred_over_ingredient_map(self):
+        """When DB nutrients exist for a recipe, they should be used."""
+        recipe = {"id": "1", "name": "Lentil Soup", "ingredients": ["Salt"]}
+        # Ingredient map would give sodium for "Salt"
+        # DB says it has fiber and iron instead
+        db_nutrients = {"lentil soup": {"fiber", "iron", "protein"}}
+        nutrients = _get_recipe_nutrients(recipe, db_nutrients)
+        assert "fiber" in nutrients
+        assert "iron" in nutrients
+        assert "sodium" not in nutrients  # DB overrides ingredient map
+
+    def test_falls_back_to_ingredient_map_when_not_in_db(self):
+        """When recipe is not in DB, ingredient map is used."""
+        recipe = {"id": "1", "name": "Unknown Recipe", "ingredients": ["Salt"]}
+        db_nutrients = {}  # empty DB
+        nutrients = _get_recipe_nutrients(recipe, db_nutrients)
+        assert "sodium" in nutrients
+
+    def test_db_nutrients_affect_scoring(self):
+        """Recipe with DB nutrients matching user needs should score better."""
+        good_recipe = {"id": "1", "name": "Healthy Dish", "ingredients": []}
+        bad_recipe = {"id": "2", "name": "Salty Dish", "ingredients": []}
+        db_nutrients = {
+            "healthy dish": {"fiber", "iron", "potassium", "calcium"},
+            "salty dish": {"sodium", "saturated_fat"},
+        }
+        good_score = _nutrient_relevance_score(
+            good_recipe, self.TARGETS, self.USER_NEEDS, db_nutrients
+        )
+        bad_score = _nutrient_relevance_score(
+            bad_recipe, self.TARGETS, self.USER_NEEDS, db_nutrients
+        )
+        assert good_score < bad_score
+
+    def test_db_nutrients_sodium_penalty(self):
+        """Recipe with sodium in DB nutrients should get penalised
+        when user has restrictive sodium cap."""
+        recipe = {"id": "1", "name": "Salty Thing", "ingredients": []}
+        db_nutrients = {"salty thing": {"sodium", "protein"}}
+        score = _nutrient_relevance_score(
+            recipe, self.TARGETS, self.USER_NEEDS, db_nutrients
+        )
+        # protein gives -1.0 reward, sodium gives penalty
+        # net should be > -1.0 (penalty partially offsets reward)
+        assert score > -1.0
+
+    def test_db_nutrients_multiple_caps_penalised(self):
+        """Recipe with sodium + cholesterol in DB nutrients should get penalised
+        more than a recipe with only sodium when caps are restrictive."""
+        recipe_both = {"id": "1", "name": "Double Bad", "ingredients": []}
+        recipe_one = {"id": "2", "name": "Single Bad", "ingredients": []}
+        db_nutrients = {
+            "double bad": {"sodium", "cholesterol"},
+            "single bad": {"sodium"},
+        }
+        # Use restrictive cholesterol cap (200 vs 300 default) so it triggers penalty
+        restrictive_targets = {**self.TARGETS, "cholesterol_mg": 200.0}
+        score_both = _nutrient_relevance_score(
+            recipe_both, restrictive_targets, set(), db_nutrients
+        )
+        score_one = _nutrient_relevance_score(
+            recipe_one, restrictive_targets, set(), db_nutrients
+        )
+        assert score_both > score_one
+
+    def test_ranking_with_db_nutrients(self):
+        """Recipes should rank by nutrient alignment when DB data is available."""
+        recipes = [
+            {"id": "1", "name": "Salty Dish", "ingredients": []},
+            {"id": "2", "name": "Iron Rich", "ingredients": []},
+            {"id": "3", "name": "Fiber Bowl", "ingredients": []},
+        ]
+        db_nutrients = {
+            "salty dish": {"sodium", "saturated_fat"},
+            "iron rich": {"iron", "protein"},
+            "fiber bowl": {"fiber", "potassium", "calcium", "iron"},
+        }
+        scored = sorted(
+            recipes,
+            key=lambda r: _nutrient_relevance_score(
+                r, self.TARGETS, self.USER_NEEDS, db_nutrients
+            )
+        )
+        # Fiber Bowl has the most needed nutrients → should rank first
+        assert scored[0]["name"] == "Fiber Bowl"
+        # Salty Dish has penalties → should rank last
+        assert scored[-1]["name"] == "Salty Dish"

@@ -5,11 +5,13 @@
 
 ## Overview
 
-Two cooperating modules translate a user's biometric and health profile into structured dietary constraints that gate the VitalFoods recommendation pipeline at two stages:
+Three cooperating components translate a user's biometric and health profile into structured dietary constraints that gate the VitalFoods recommendation pipeline:
 
 1. **`get_avoid_ingredients`** — produces a set of clinically contraindicated ingredient names matched directly against the recipe dataset. This is applied **first**, before the RotatE knowledge graph model generates candidates, so the embedding model only ever scores recipes that are safe for the user's conditions.
 
 2. **`compute_nutrient_targets`** — produces a nine-element numeric target vector derived from validated metabolic formulas and Dietary Reference Intakes (DRIs). This drives the **final ranking step**, scoring RotatE-generated safe candidates by weighted distance to the user's personalised nutritional targets.
+
+3. **`recipe_nutrients` table** — a PostgreSQL table containing per-recipe nutrient profiles for 274,295 recipes (loaded from `trained_model/recipe_nutrients.json`). Each row maps a recipe name to its array of nutrient tags (e.g., `{protein, fiber, iron, sodium, ...}`). The nutrient-distance ranking uses this data when available, falling back to ingredient-based nutrient estimation for recipes not in the table.
 
 ```
 User Profile
@@ -18,7 +20,9 @@ User Profile
     │                                                               │
     │                                                     RotatE embedding model
     │                                                               │
-    └─► compute_nutrient_targets() ──► target nutrient vector ──► weighted-distance ranking
+    ├─► compute_nutrient_targets() ──► target nutrient vector ──┐
+    │                                                           │
+    └─► recipe_nutrients table ──► per-recipe nutrient tags ──► weighted-distance ranking
                                                                     │
                                                             Top-N recommendations
 ```
@@ -225,9 +229,12 @@ targets = compute_nutrient_targets(
 
 ## Full pipeline integration
 
+Implemented in `backend/app/recommender.py`. The pipeline runs on each `GET /recommendations` request.
+
 ```python
 from avoid_ingredients import get_avoid_ingredients
 from nutrient_targets import compute_nutrient_targets
+from app.models import RecipeNutrient
 
 # ── Step 1: derive ingredient block set ──────────────────────────────────
 avoid = get_avoid_ingredients(
@@ -236,13 +243,14 @@ avoid = get_avoid_ingredients(
 )
 avoid_set = {x.lower() for x in avoid["unified"]}
 
-# ── Step 2: filter recipe pool before RotatE ─────────────────────────────
+# ── Step 2: filter recipe pool ───────────────────────────────────────────
 safe_recipes = [
     r for r in all_recipes
     if not any(ing.lower() in avoid_set for ing in r.ingredients)
 ]
 
 # ── Step 3: RotatE generates candidates from the safe pool ───────────────
+# (When KG model is loaded; otherwise falls back to TheMealDB/mock recipes)
 candidates = rotate_model.recommend(
     user_entity=user.entity_id,
     recipe_pool=safe_recipes,
@@ -250,6 +258,7 @@ candidates = rotate_model.recommend(
 )
 
 # ── Step 4: derive nutrient target vector ────────────────────────────────
+# (Only when user has provided biometric data; otherwise random ranking)
 targets = compute_nutrient_targets(
     height_cm=user.height_cm,
     weight_kg=user.weight_kg,
@@ -259,18 +268,49 @@ targets = compute_nutrient_targets(
     health_conditions=user.health_conditions,
 )
 
-# ── Step 5: rank candidates by weighted distance to target vector ─────────
-def nutrient_distance(recipe, targets, weights):
-    return sum(
-        weights[nutrient] * abs(getattr(recipe.nutrition, nutrient, 0) - target)
-        for nutrient, target in targets.items()
-    )
+# ── Step 5: look up per-recipe nutrients from DB ─────────────────────────
+# Bulk query recipe_nutrients table (274K recipes with nutrient profiles).
+# Falls back to ingredient-based estimation for recipes not in the table.
+recipe_names = [r["name"] for r in candidates]
+rows = db.query(RecipeNutrient).filter(
+    RecipeNutrient.recipe_name.in_(recipe_names)
+).all()
+db_nutrients = {row.recipe_name.lower(): set(row.nutrients) for row in rows}
+
+# ── Step 6: rank candidates by nutrient-distance scoring ─────────────────
+# Rewards recipes whose nutrients match user needs (from ailment.needs).
+# Penalises recipes high in capped nutrients (sodium, cholesterol, etc.)
+# when the user's cap is more restrictive than the population default.
+def nutrient_relevance_score(recipe, targets, user_needs, db_nutrients):
+    # Prefer DB nutrients; fall back to ingredient-based map
+    recipe_nutrients = db_nutrients.get(recipe["name"].lower()) \
+        or _recipe_ingredient_nutrients(recipe)
+    score = 0.0
+    for tag in recipe_nutrients:
+        if tag in user_needs:
+            score -= 1.0  # reward
+    for tag, (target_key, default_cap) in CAP_NUTRIENTS.items():
+        if tag in recipe_nutrients and default_cap:
+            ratio = 1.0 - (targets[target_key] / default_cap)
+            if ratio > 0:
+                score += NUTRIENT_WEIGHTS[target_key] * ratio  # penalty
+    return score
 
 recommendations = sorted(
     candidates,
-    key=lambda r: nutrient_distance(r, targets, NUTRIENT_WEIGHTS),
+    key=lambda r: nutrient_relevance_score(r, targets, user_needs, db_nutrients),
 )[:top_n]
 ```
+
+### Loading recipe nutrients
+
+The `recipe_nutrients` table is populated from `trained_model/recipe_nutrients.json` (274,295 recipes, each mapped to an array of 15 nutrient tags).
+
+```bash
+python scripts/load_recipe_nutrients.py
+```
+
+Available nutrient tags: `calcium`, `carbohydrate`, `copper`, `fat`, `fiber`, `iron`, `magnesium`, `omega_6_fatty_acids`, `phosphorus`, `potassium`, `protein`, `saturated_fat`, `selenium`, `sodium`, `zinc`.
 
 ---
 
