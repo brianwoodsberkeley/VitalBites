@@ -52,6 +52,16 @@ npm install
 cd ..
 ```
 
+### 6. Load recipe nutrient data
+
+The recommendation engine uses per-recipe nutrient profiles (274K recipes) to rank results by nutrient-distance. Load them into the database:
+
+```bash
+python3 scripts/load_recipe_nutrients.py
+```
+
+This reads `trained_model/recipe_nutrients.json` and populates the `recipe_nutrients` table. The script is idempotent — re-running it clears and reloads the data.
+
 ## Running the app
 
 ### Backend (terminal 1)
