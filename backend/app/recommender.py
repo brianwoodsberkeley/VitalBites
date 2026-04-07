@@ -7,19 +7,20 @@ from pathlib import Path
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from .models import User, RecipeFeedback, RecipeNutrient
-from avoid_ingredients import get_avoid_ingredients
-from nutrient_targets import compute_nutrient_targets
 
 # TheMealDB API - free, no API key required
 MEALDB_API_BASE = "https://www.themealdb.com/api/json/v1/1"
 
 # ============ KG Model Singleton ============
 
-# Add repo root to sys.path so we can import train_and_infer
+# Add repo root to sys.path so we can import train_and_infer, avoid_ingredients, nutrient_targets
 _BACKEND_DIR = Path(__file__).resolve().parent.parent  # backend/
 _REPO_ROOT = _BACKEND_DIR.parent                       # VitalBites/
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+from avoid_ingredients import get_avoid_ingredients
+from nutrient_targets import compute_nutrient_targets
 
 # Default model directory: backend/models/
 MODELS_DIR = os.environ.get("VITALBITES_MODELS_DIR", str(_BACKEND_DIR / "models"))

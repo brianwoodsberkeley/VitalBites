@@ -30,7 +30,7 @@ services:
     build: ../frontend
     restart: unless-stopped
     environment:
-      REACT_APP_API_URL: https://brianosaurus.com/api
+      REACT_APP_API_URL: https://www.vitalfoods.ai/api
     expose:
       - "3000"
     depends_on:
