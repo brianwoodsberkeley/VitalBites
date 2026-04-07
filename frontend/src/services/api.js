@@ -1,4 +1,4 @@
-const API_URL = '/api';
+const API_URL = window.location.hostname === 'localhost' ? 'http://localhost:8000' : '/api';
 
 // Helper to get auth headers
 const getAuthHeaders = () => {
