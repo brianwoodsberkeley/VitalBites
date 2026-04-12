@@ -1,14 +1,20 @@
-import httpx
+import asyncio
 import random
 import json
 import os
 import sys
 from pathlib import Path
 from typing import List, Optional
+import httpx
 from sqlalchemy.orm import Session
 from .models import User, RecipeFeedback, RecipeNutrient
 
-# TheMealDB API - free, no API key required
+# Food.com recipe dataset (local parquet). Override with VITALBITES_FOODCOM_PATH.
+_DEFAULT_FOODCOM_PATH = str(Path(__file__).resolve().parent.parent.parent / "df_foodcom_recipes_filtered.parquet")
+FOODCOM_PARQUET_PATH = os.environ.get("VITALBITES_FOODCOM_PATH", _DEFAULT_FOODCOM_PATH)
+
+# TheMealDB is used as a best-effort enrichment source for images, instructions,
+# and youtube links — the Food.com parquet lacks those fields.
 MEALDB_API_BASE = "https://www.themealdb.com/api/json/v1/1"
 
 # ============ KG Model Singleton ============
@@ -53,7 +59,7 @@ def get_kg_engine():
     missing = [f for f in required_files if not os.path.exists(os.path.join(MODELS_DIR, f))]
     if missing:
         print(f"[recommender] KG model files missing from {MODELS_DIR}: {missing}")
-        print(f"[recommender] Falling back to TheMealDB/mock recommendations.")
+        print(f"[recommender] Falling back to Food.com/mock recommendations.")
         return None
 
     config_path = os.path.join(MODELS_DIR, "mined_config.json")
@@ -75,39 +81,219 @@ def get_kg_engine():
     return _kg_engine
 
 
-# ============ TheMealDB Search ============
+# ============ Food.com Parquet Dataset ============
 
-async def search_mealdb_by_name(name: str) -> Optional[dict]:
-    """Search TheMealDB for a recipe by name and return formatted recipe dict."""
+_foodcom_df = None
+_foodcom_name_index: dict = {}
+_foodcom_load_attempted = False
+
+
+def _load_foodcom_dataset():
+    """Lazy-load the Food.com parquet once and build a lowercased name index."""
+    global _foodcom_df, _foodcom_name_index, _foodcom_load_attempted
+    if _foodcom_load_attempted:
+        return _foodcom_df
+    _foodcom_load_attempted = True
+
+    if not os.path.exists(FOODCOM_PARQUET_PATH):
+        print(f"[recommender] Food.com parquet not found at {FOODCOM_PARQUET_PATH}; using mock fallback.")
+        return None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{MEALDB_API_BASE}/search.php", params={"s": name})
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("meals"):
-                    meal = data["meals"][0]
-                    ingredients = []
-                    for i in range(1, 21):
-                        ingredient = meal.get(f"strIngredient{i}")
-                        if ingredient and ingredient.strip():
-                            ingredients.append(ingredient)
-                    return {
-                        "id": meal["idMeal"],
-                        "name": meal["strMeal"],
-                        "image": meal["strMealThumb"],
-                        "category": meal["strCategory"],
-                        "area": meal.get("strArea", ""),
-                        "instructions": meal["strInstructions"],
-                        "ingredients": ingredients,
-                        "source": meal.get("strSource", ""),
-                        "youtube": meal.get("strYoutube", ""),
-                    }
+        import pandas as pd
+        print(f"[recommender] Loading Food.com parquet from {FOODCOM_PARQUET_PATH}...")
+        df = pd.read_parquet(FOODCOM_PARQUET_PATH)
+        df = df[df["Name"].notna()].reset_index(drop=True)
+        _foodcom_df = df
+        names_lower = df["Name"].astype(str).str.lower()
+        _foodcom_name_index = {}
+        for idx, n in enumerate(names_lower):
+            if n not in _foodcom_name_index:
+                _foodcom_name_index[n] = idx
+        print(f"[recommender] Loaded {len(df)} Food.com recipes.")
     except Exception as e:
-        print(f"[recommender] MealDB search failed for '{name}': {e}")
+        print(f"[recommender] Failed to load Food.com parquet: {e}")
+        _foodcom_df = None
+    return _foodcom_df
+
+
+def _format_foodcom_row(row) -> dict:
+    """Convert a Food.com parquet row into the recipe dict shape the API returns."""
+    ingredients_raw = row.get("RecipeIngredientParts")
+    if ingredients_raw is None:
+        ingredients = []
+    else:
+        ingredients = [str(i) for i in list(ingredients_raw) if i is not None and str(i).strip()]
+
+    quantities_raw = row.get("RecipeIngredientQuantities")
+    quantities = []
+    if quantities_raw is not None:
+        quantities = [str(q) for q in list(quantities_raw)]
+
+    name = str(row.get("Name") or "").strip()
+    category = row.get("RecipeCategory")
+    category_str = str(category) if category is not None and str(category) != "nan" else "Food.com"
+
+    # The Food.com parquet has no images or step-by-step instructions; synthesise
+    # a short summary from the available nutrition columns instead.
+    servings = row.get("RecipeServings")
+    instructions = (
+        f"Recipe sourced from Food.com. Prepare as a {category_str.lower()} dish; "
+        f"serves {servings if servings is not None and str(servings) != 'nan' else 'multiple'}."
+    )
+    nutrition_bits = []
+    for col, label in [
+        ("Calories_per_serving", "cal"),
+        ("ProteinContent_per_serving", "g protein"),
+        ("CarbohydrateContent_per_serving", "g carbs"),
+        ("FatContent_per_serving", "g fat"),
+        ("FiberContent_per_serving", "g fiber"),
+    ]:
+        val = row.get(col)
+        if val is not None and str(val) != "nan":
+            try:
+                nutrition_bits.append(f"{float(val):.0f} {label}")
+            except (TypeError, ValueError):
+                pass
+    if nutrition_bits:
+        instructions += " Per serving: " + ", ".join(nutrition_bits) + "."
+
+    # Structured per-serving nutrition pulled straight from the parquet.
+    nutrition: dict = {}
+    for parquet_col, key in [
+        ("Calories_per_serving",          "calories"),
+        ("ProteinContent_per_serving",    "protein_g"),
+        ("CarbohydrateContent_per_serving","carbs_g"),
+        ("FatContent_per_serving",        "fat_g"),
+        ("SaturatedFatContent_per_serving","saturated_fat_g"),
+        ("FiberContent_per_serving",      "fiber_g"),
+        ("SugarContent_per_serving",      "sugar_g"),
+        ("SodiumContent_per_serving",     "sodium_mg"),
+        ("CholesterolContent_per_serving","cholesterol_mg"),
+    ]:
+        v = row.get(parquet_col)
+        if v is not None and str(v) != "nan":
+            try:
+                nutrition[key] = float(v)
+            except (TypeError, ValueError):
+                pass
+
+    # Free-text health function strings — lowercased and concatenated for
+    # substring matching against user 'needs' (iron, vitamin_c, etc.).
+    hf_parts = []
+    for col in ("HealthFunctions", "MicronutrientHealthFunctions"):
+        arr = row.get(col)
+        if arr is None:
+            continue
+        try:
+            for s in list(arr):
+                if s:
+                    hf_parts.append(str(s).lower())
+        except TypeError:
+            pass
+    health_functions_text = " ".join(hf_parts)
+
+    recipe_id = f"foodcom_{int(row.name)}"
+
+    return {
+        "id": recipe_id,
+        "name": name,
+        "image": f"https://via.placeholder.com/300x200?text={name.replace(' ', '+')[:60]}",
+        "category": category_str,
+        "area": "Food.com",
+        "instructions": instructions,
+        "ingredients": ingredients,
+        "ingredient_quantities": quantities,
+        "source": "https://www.food.com/",
+        "youtube": "",
+        "nutrition": nutrition,
+        "health_functions_text": health_functions_text,
+    }
+
+
+async def search_foodcom_by_name(name: str) -> Optional[dict]:
+    """Look up a recipe in the Food.com parquet by (case-insensitive) name."""
+    df = _load_foodcom_dataset()
+    if df is None or not name:
+        return None
+    idx = _foodcom_name_index.get(name.lower())
+    if idx is None:
+        return None
+    try:
+        row = df.iloc[idx]
+        return _format_foodcom_row(row)
+    except Exception as e:
+        print(f"[recommender] Food.com lookup failed for '{name}': {e}")
+        return None
+
+
+# ============ TheMealDB enrichment ============
+
+async def _fetch_mealdb_enrichment(client: httpx.AsyncClient, name: str) -> Optional[dict]:
+    """Query TheMealDB for image/instructions/youtube data for a given recipe name."""
+    if not name:
+        return None
+    try:
+        r = await client.get(f"{MEALDB_API_BASE}/search.php", params={"s": name})
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("meals"):
+                m = data["meals"][0]
+                return {
+                    "image": m.get("strMealThumb") or "",
+                    "instructions": m.get("strInstructions") or "",
+                    "youtube": m.get("strYoutube") or "",
+                    "area": m.get("strArea") or "",
+                    "source": m.get("strSource") or "",
+                }
+    except Exception as e:
+        print(f"[recommender] MealDB enrich failed for '{name}': {e}")
     return None
 
 
-# ============ Fallback: TheMealDB random + mock ============
+def _overlay_enrichment(recipe: dict, extra: Optional[dict]) -> dict:
+    """Overlay non-empty fields from an enrichment dict onto the recipe."""
+    if not extra:
+        return recipe
+    for k, v in extra.items():
+        if v:
+            recipe[k] = v
+    return recipe
+
+
+async def _enrich_recipes_with_mealdb(recipes: List[dict]) -> List[dict]:
+    """Best-effort parallel enrichment of Food.com recipes with TheMealDB fields."""
+    if not recipes:
+        return recipes
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            results = await asyncio.gather(
+                *[_fetch_mealdb_enrichment(client, r.get("name", "")) for r in recipes],
+                return_exceptions=True,
+            )
+        for recipe, extra in zip(recipes, results):
+            if isinstance(extra, Exception):
+                continue
+            _overlay_enrichment(recipe, extra)
+    except Exception as e:
+        print(f"[recommender] MealDB enrichment batch failed: {e}")
+    return recipes
+
+
+async def search_mealdb_by_name(name: str) -> Optional[dict]:
+    """Look up a recipe by name: prefer Food.com, enrich with TheMealDB."""
+    recipe = await search_foodcom_by_name(name)
+    if recipe is None:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            extra = await _fetch_mealdb_enrichment(client, name)
+        _overlay_enrichment(recipe, extra)
+    except Exception as e:
+        print(f"[recommender] MealDB single-enrich failed for '{name}': {e}")
+    return recipe
+
+
+# ============ Fallback: Food.com random sample + mock ============
 
 MOCK_RECIPES = [
     {
@@ -234,40 +420,17 @@ MOCK_RECIPES = [
 
 
 async def fetch_recipes_from_api(count: int = 10) -> List[dict]:
-    """Fetch random recipes from TheMealDB API"""
-    recipes = []
-
+    """Sample random recipes from Food.com parquet and enrich via TheMealDB."""
+    df = _load_foodcom_dataset()
+    if df is None or len(df) == 0:
+        return []
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            for _ in range(count):
-                response = await client.get(f"{MEALDB_API_BASE}/random.php")
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("meals"):
-                        meal = data["meals"][0]
-
-                        # Extract ingredients
-                        ingredients = []
-                        for i in range(1, 21):
-                            ingredient = meal.get(f"strIngredient{i}")
-                            if ingredient and ingredient.strip():
-                                ingredients.append(ingredient)
-
-                        recipes.append({
-                            "id": meal["idMeal"],
-                            "name": meal["strMeal"],
-                            "image": meal["strMealThumb"],
-                            "category": meal["strCategory"],
-                            "area": meal.get("strArea", ""),
-                            "instructions": meal["strInstructions"],
-                            "ingredients": ingredients,
-                            "source": meal.get("strSource", ""),
-                            "youtube": meal.get("strYoutube", "")
-                        })
+        sample = df.sample(n=min(count, len(df)))
+        recipes = [_format_foodcom_row(sample.iloc[i]) for i in range(len(sample))]
     except Exception as e:
-        print(f"Error fetching from API: {e}")
-
-    return recipes
+        print(f"[recommender] Food.com sampling failed: {e}")
+        return []
+    return await _enrich_recipes_with_mealdb(recipes)
 
 
 def get_mock_recipes(count: int = 10) -> List[dict]:
@@ -387,31 +550,133 @@ def _get_recipe_nutrients(recipe: dict, db_nutrients: dict) -> set:
     return _recipe_ingredient_nutrients(recipe)
 
 
+# Assume one recipe serving ≈ 1/3 of daily intake when comparing to targets.
+PER_MEAL_FRACTION = 1.0 / 3.0
+
+# Ailment 'needs' tokens (from seed_data.py) → parquet nutrition keys.
+NEED_TO_NUTRITION_KEY = {
+    "protein":       "protein_g",
+    "fiber":         "fiber_g",
+    "carbohydrate":  "carbs_g",
+    "fat":           "fat_g",
+    "saturated_fat": "saturated_fat_g",
+}
+
+# Nutrients the user should not exceed. Maps to a default daily cap used
+# when compute_nutrient_targets does not supply one.
+CAP_KEYS_DEFAULTS = {
+    "sodium_mg":       2300.0,
+    "saturated_fat_g": 20.0,
+    "sugar_g":         50.0,
+    "cholesterol_mg":  300.0,
+}
+
+# Recipes that exceed per_meal_cap * HARD_CAP_MULTIPLIER are dropped entirely.
+HARD_CAP_MULTIPLIER = 2.0
+
+
+def _need_to_tokens(need: str) -> set:
+    """Expand a need like 'vitamin_b9_folate' into searchable substrings."""
+    tokens = {need.replace("_", " ")}
+    for piece in need.split("_"):
+        if len(piece) > 2 and piece != "vitamin":
+            tokens.add(piece)
+    return tokens
+
+
+def _per_meal_cap(targets: dict, key: str) -> Optional[float]:
+    """Convert a daily target into a per-serving cap."""
+    daily = None
+    if targets:
+        daily = targets.get(key)
+    if daily is None:
+        daily = CAP_KEYS_DEFAULTS.get(key)
+    if daily is None:
+        return None
+    return daily * PER_MEAL_FRACTION
+
+
+def _exceeds_hard_cap(recipe: dict, targets: dict) -> bool:
+    """True if any cap nutrient exceeds HARD_CAP_MULTIPLIER * per-meal share."""
+    nutrition = recipe.get("nutrition") or {}
+    if not nutrition:
+        return False
+    for key in CAP_KEYS_DEFAULTS:
+        val = nutrition.get(key)
+        if val is None:
+            continue
+        per_meal = _per_meal_cap(targets, key)
+        if per_meal is None:
+            continue
+        if val > per_meal * HARD_CAP_MULTIPLIER:
+            return True
+    return False
+
+
 def _nutrient_relevance_score(recipe: dict, targets: dict, user_needs: set,
                                db_nutrients: dict = None) -> float:
     """
-    Score a recipe by how well its ingredient-derived nutrients align
-    with the user's nutrient targets.  Lower score = better match.
+    Rank a recipe by how well its measured per-serving nutrition aligns with
+    the user's daily targets and ailment-derived needs. Lower = better.
 
-    Recipes that provide nutrients the user needs (based on ailment 'needs')
-    are ranked higher. Recipes containing nutrients that should be limited
-    (caps in targets) are penalised.
+    Prefers structured nutrition from the Food.com parquet (recipe['nutrition']).
+    Falls back to ingredient-substring heuristics only when structured data
+    is unavailable.
     """
+    nutrition = recipe.get("nutrition") or {}
+
+    if nutrition:
+        score = 0.0
+
+        # Reward macros the user needs, proportional to the fraction of
+        # the daily target a single serving supplies (capped at half).
+        for need in user_needs:
+            key = NEED_TO_NUTRITION_KEY.get(need)
+            if not key:
+                continue
+            serving_val = nutrition.get(key)
+            target_val = targets.get(key) if targets else None
+            if serving_val is None or not target_val:
+                continue
+            frac = min(serving_val / target_val, 0.5)
+            score -= frac * NUTRIENT_WEIGHTS.get(key, 1.0) * 2.0
+
+        # Penalise cap overages — how badly serving exceeds its per-meal share.
+        for cap_key in CAP_KEYS_DEFAULTS:
+            serving_val = nutrition.get(cap_key)
+            if serving_val is None:
+                continue
+            per_meal = _per_meal_cap(targets, cap_key)
+            if per_meal is None or per_meal <= 0:
+                continue
+            if serving_val > per_meal:
+                excess = (serving_val - per_meal) / per_meal
+                score += excess * NUTRIENT_WEIGHTS.get(cap_key, 1.0)
+
+        # Micronutrient / vitamin needs via HealthFunctions prose matching.
+        hf_text = recipe.get("health_functions_text") or ""
+        if hf_text:
+            for need in user_needs:
+                if need in NEED_TO_NUTRITION_KEY:
+                    continue
+                for tok in _need_to_tokens(need):
+                    if tok in hf_text:
+                        score -= 0.5
+                        break
+
+        return score
+
+    # -- Fallback: ingredient-substring heuristic (legacy behaviour) --
     if db_nutrients is not None:
         recipe_nutrients = _get_recipe_nutrients(recipe, db_nutrients)
     else:
         recipe_nutrients = _recipe_ingredient_nutrients(recipe)
 
     score = 0.0
-
-    # Reward: recipe provides nutrients the user needs
     for nutrient_tag in recipe_nutrients:
         if nutrient_tag in user_needs:
-            score -= 1.0  # lower is better
+            score -= 1.0
 
-    # Penalise: recipe is high in nutrients that have low caps
-    # (sodium, saturated fat, sugar, cholesterol)
-    # Keys cover both ingredient-map tags and DB nutrient names
     cap_nutrients = {
         "sodium":        ("sodium_mg",       2300.0),
         "saturated fat": ("saturated_fat_g", None),
@@ -420,10 +685,9 @@ def _nutrient_relevance_score(recipe: dict, targets: dict, user_needs: set,
         "cholesterol":   ("cholesterol_mg",  300.0),
     }
     for nutrient_tag, (target_key, default_cap) in cap_nutrients.items():
-        if nutrient_tag in recipe_nutrients:
+        if nutrient_tag in recipe_nutrients and targets:
             target_val = targets.get(target_key, default_cap)
             if target_val is not None and default_cap is not None:
-                # The more restrictive the cap vs default, the bigger the penalty
                 restriction_ratio = 1.0 - (target_val / default_cap)
                 if restriction_ratio > 0:
                     score += NUTRIENT_WEIGHTS.get(target_key, 1.0) * restriction_ratio
@@ -490,8 +754,10 @@ async def get_recommendations(
         if recipes:
             return recipes
 
-    # -- Fallback: TheMealDB + mock --
-    recipes = await fetch_recipes_from_api(count * 2)
+    # -- Fallback: Food.com parquet + mock --
+    # Oversample heavily because avoid-ingredient + hard-cap filters
+    # can remove a large fraction of random samples.
+    recipes = await fetch_recipes_from_api(count * 8)
     if len(recipes) < count:
         recipes = get_mock_recipes(count * 2)
 
@@ -512,14 +778,22 @@ async def get_recommendations(
                     if not any(ing.lower() in avoid_set for ing in r.get("ingredients", []))
                 ]
 
-    # Rank by nutrient-distance if user has biometric data, else random
     targets = _compute_user_targets(user)
+
+    # Hard-cap filter: drop recipes whose structured nutrition blows through
+    # any cap by more than HARD_CAP_MULTIPLIER × per-meal share.
+    if user.ailments:
+        before = len(recipes)
+        recipes = [r for r in recipes if not _exceeds_hard_cap(r, targets)]
+        if before and before > len(recipes):
+            print(f"[recommender] hard-cap filter dropped {before - len(recipes)}/{before}")
+
+    # Rank by nutrient-distance if user has biometric data, else random
     if targets and user.ailments:
         user_needs = set()
         for ailment in user.ailments:
             if ailment.needs:
                 user_needs.update(n.strip().lower() for n in ailment.needs.split(","))
-        # Bulk-lookup nutrients from DB for all candidate recipes
         recipe_names = [r.get("name", "") for r in recipes]
         db_nutrients = _bulk_lookup_nutrients(db, recipe_names)
         recipes.sort(key=lambda r: _nutrient_relevance_score(r, targets, user_needs, db_nutrients))
@@ -547,7 +821,8 @@ async def _kg_recommendations(
     """
     Use the KG inference engine to get ailment-based recommendations.
     For each user ailment, runs recommend_for_ailment and merges results.
-    Tries to enrich recipe names with TheMealDB data.
+    Resolves recipe names via the Food.com parquet and enriches with TheMealDB
+    for image/instructions/youtube data when available.
     """
     # Aggregate recommendations across all user ailments
     recipe_scores = {}  # recipe_name -> (best_score, nutrients)
@@ -568,7 +843,7 @@ async def _kg_recommendations(
     # Sort by score (lower is better in RotatE distance)
     sorted_recipes = sorted(recipe_scores.items(), key=lambda x: x[1][0])
 
-    # Build recipe dicts, try to enrich from TheMealDB
+    # Build recipe dicts from Food.com, enrich with TheMealDB when possible
     recipes = []
     for recipe_name, (score, nutrients) in sorted_recipes:
         # Use recipe name as a stable ID for the KG recipes
@@ -577,11 +852,11 @@ async def _kg_recommendations(
         if recipe_id in skipped_ids:
             continue
 
-        # Try TheMealDB lookup for image/instructions
-        mealdb_data = await search_mealdb_by_name(recipe_name)
+        # Resolve via Food.com parquet + TheMealDB enrichment (image/instructions/youtube)
+        enriched = await search_mealdb_by_name(recipe_name)
 
-        if mealdb_data:
-            recipe = mealdb_data
+        if enriched:
+            recipe = enriched
             recipe["kg_score"] = round(score, 4)
             recipe["kg_nutrients"] = nutrients
         else:
@@ -615,8 +890,15 @@ async def _kg_recommendations(
                 if not any(ing.lower() in avoid_set for ing in r.get("ingredients", []))
             ]
 
-    # Re-rank with nutrient-distance scoring (Step 5 of pipeline)
     targets = _compute_user_targets(user)
+
+    # Hard-cap filter — drop recipes that blow through cap nutrients by >2×.
+    before = len(recipes)
+    recipes = [r for r in recipes if not _exceeds_hard_cap(r, targets)]
+    if before and before > len(recipes):
+        print(f"[recommender] KG hard-cap filter dropped {before - len(recipes)}/{before}")
+
+    # Re-rank with nutrient-distance scoring (Step 5 of pipeline)
     if targets:
         user_needs = set()
         for ailment in user.ailments:

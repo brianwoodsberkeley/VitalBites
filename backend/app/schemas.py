@@ -70,6 +70,8 @@ class RecipeOut(BaseModel):
     kg_score: Optional[float] = None
     kg_nutrients: Optional[List[str]] = None
     nutrient_targets: Optional[dict] = None
+    nutrition: Optional[dict] = None
+    health_functions_text: Optional[str] = None
 
 class RecipeFeedbackCreate(BaseModel):
     recipe_id: str

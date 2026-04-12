@@ -192,6 +192,23 @@ function RecipeDetail() {
 
   const helpsWithConditions = getHelpsWithConditions();
 
+  // Per-serving nutrition from Food.com parquet (attached server-side).
+  const nutritionRows = [
+    { key: 'calories',        label: 'Calories',      unit: 'kcal', digits: 0 },
+    { key: 'protein_g',       label: 'Protein',       unit: 'g',    digits: 1 },
+    { key: 'carbs_g',         label: 'Carbohydrates', unit: 'g',    digits: 1 },
+    { key: 'fiber_g',         label: 'Fiber',         unit: 'g',    digits: 1 },
+    { key: 'sugar_g',         label: 'Sugar',         unit: 'g',    digits: 1 },
+    { key: 'fat_g',           label: 'Fat',           unit: 'g',    digits: 1 },
+    { key: 'saturated_fat_g', label: 'Saturated Fat', unit: 'g',    digits: 1 },
+    { key: 'cholesterol_mg',  label: 'Cholesterol',   unit: 'mg',   digits: 0 },
+    { key: 'sodium_mg',       label: 'Sodium',        unit: 'mg',   digits: 0 },
+  ];
+  const nutrition = recipe.nutrition || {};
+  const visibleNutrition = nutritionRows.filter(
+    r => nutrition[r.key] !== undefined && nutrition[r.key] !== null
+  );
+
   // Map common ingredients to their micro-nutrients
   const INGREDIENT_NUTRIENT_MAP = {
     'spinach': ['iron', 'folate', 'vitamin K1', 'magnesium', 'vitamin C'],
@@ -297,7 +314,6 @@ function RecipeDetail() {
 
       <div className="dashboard-content">
         <div className="recipe-detail-card">
-          {image && <img src={image} alt={recipeName} className="recipe-detail-image" />}
           <div className="recipe-detail-title-row">
             <h1 className="recipe-detail-title">{recipeName}</h1>
             <button
@@ -329,6 +345,28 @@ function RecipeDetail() {
                 ))}
               </div>
             </div>
+          )}
+
+          {visibleNutrition.length > 0 && (
+            <>
+              <h3 className="recipe-detail-heading">Nutrition (per serving)</h3>
+              <table className="ingredients-table">
+                <thead>
+                  <tr>
+                    <th>Nutrient</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleNutrition.map(r => (
+                    <tr key={r.key}>
+                      <td>{r.label}</td>
+                      <td>{Number(nutrition[r.key]).toFixed(r.digits)} {r.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
 
           {ingredients.length > 0 && (
