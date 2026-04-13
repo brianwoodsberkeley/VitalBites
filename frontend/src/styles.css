@@ -1322,6 +1322,15 @@
   margin: 0 0 1.5rem 0;
 }
 
+.recipe-detail-image {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin: 0 0 1.5rem 0;
+}
+
 .recipe-detail-heading {
   font-size: 0.85rem;
   font-weight: 700;

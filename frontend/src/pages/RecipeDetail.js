@@ -354,6 +354,15 @@ function RecipeDetail() {
             {category}{category && area ? ' · ' : ''}{area}
           </p>
 
+          {image && (
+            <img
+              src={image}
+              alt={recipeName}
+              className="recipe-detail-image"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          )}
+
           {/* Helps With */}
           {helpsWithConditions.length > 0 && (
             <div className="helps-with-section">
