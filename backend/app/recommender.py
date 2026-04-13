@@ -116,6 +116,34 @@ def _load_foodcom_dataset():
     return _foodcom_df
 
 
+def _json_safe(value):
+    """Convert a pandas/numpy value into a JSON-serialisable Python primitive."""
+    import math
+    if value is None:
+        return None
+    # Unwrap numpy scalars first (they look like floats but aren't).
+    if hasattr(value, "item") and not hasattr(value, "__len__"):
+        try:
+            value = value.item()
+        except Exception:
+            pass
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    # numpy array or pandas Series → recurse into list.
+    if hasattr(value, "tolist") and not isinstance(value, (str, bytes)):
+        try:
+            return [_json_safe(v) for v in value.tolist()]
+        except Exception:
+            pass
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (int, float, bool, str)):
+        return value
+    return str(value)
+
+
 def _format_foodcom_row(row) -> dict:
     """Convert a Food.com parquet row into the recipe dict shape the API returns."""
     ingredients_raw = row.get("RecipeIngredientParts")
@@ -192,6 +220,15 @@ def _format_foodcom_row(row) -> dict:
             pass
     health_functions_text = " ".join(hf_parts)
 
+    # Full parquet row, JSON-safe, so every column (even ones not otherwise
+    # used) is visible on the client for debugging / future features.
+    parquet_row: dict = {}
+    try:
+        for col in row.index:
+            parquet_row[str(col)] = _json_safe(row[col])
+    except Exception as e:
+        print(f"[recommender] parquet_row dump failed for '{name}': {e}")
+
     recipe_id = f"foodcom_{int(row.name)}"
 
     return {
@@ -207,6 +244,7 @@ def _format_foodcom_row(row) -> dict:
         "youtube": "",
         "nutrition": nutrition,
         "health_functions_text": health_functions_text,
+        "parquet_row": parquet_row,
     }
 
 

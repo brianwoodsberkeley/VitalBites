@@ -144,9 +144,19 @@ function RecipeDetail() {
     );
   }
 
-  // Parse ingredients from recipe, deduplicating
+  // Parse ingredients from recipe, deduplicating. Prefer the Food.com parquet
+  // row when available so we can pair each ingredient with its quantity.
+  const parquetParts = recipe.parquet_row?.RecipeIngredientParts;
+  const parquetQtys = recipe.parquet_row?.RecipeIngredientQuantities;
   const ingredientsRaw = [];
-  if (recipe.ingredients && Array.isArray(recipe.ingredients)) {
+  if (Array.isArray(parquetParts) && parquetParts.length > 0) {
+    parquetParts.forEach((part, i) => {
+      if (!part) return;
+      const qty = Array.isArray(parquetQtys) ? parquetQtys[i] : null;
+      const qtyStr = qty !== null && qty !== undefined && String(qty).trim() !== '' ? `${String(qty).trim()} ` : '';
+      ingredientsRaw.push(`${qtyStr}${String(part).trim()}`);
+    });
+  } else if (recipe.ingredients && Array.isArray(recipe.ingredients)) {
     ingredientsRaw.push(...recipe.ingredients);
   } else {
     // TheMealDB format: strIngredient1..20, strMeasure1..20

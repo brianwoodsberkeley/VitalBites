@@ -72,6 +72,7 @@ class RecipeOut(BaseModel):
     nutrient_targets: Optional[dict] = None
     nutrition: Optional[dict] = None
     health_functions_text: Optional[str] = None
+    parquet_row: Optional[dict] = None
 
 class RecipeFeedbackCreate(BaseModel):
     recipe_id: str
