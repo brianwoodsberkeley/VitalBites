@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .models import User, RecipeFeedback, RecipeNutrient
 
 # Food.com recipe dataset (local parquet). Override with VITALBITES_FOODCOM_PATH.
-_DEFAULT_FOODCOM_PATH = str(Path(__file__).resolve().parent.parent.parent / "df_foodcom_recipes_filtered.parquet")
+_DEFAULT_FOODCOM_PATH = str(Path(__file__).resolve().parent.parent.parent / "df_foodcom_recipes_final.parquet")
 FOODCOM_PARQUET_PATH = os.environ.get("VITALBITES_FOODCOM_PATH", _DEFAULT_FOODCOM_PATH)
 
 # TheMealDB is used as a best-effort enrichment source for images, instructions,
@@ -161,29 +161,30 @@ def _format_foodcom_row(row) -> dict:
     category = row.get("RecipeCategory")
     category_str = str(category) if category is not None and str(category) != "nan" else "Food.com"
 
-    # The Food.com parquet has no images or step-by-step instructions; synthesise
-    # a short summary from the available nutrition columns instead.
-    servings = row.get("RecipeServings")
-    instructions = (
-        f"Recipe sourced from Food.com. Prepare as a {category_str.lower()} dish; "
-        f"serves {servings if servings is not None and str(servings) != 'nan' else 'multiple'}."
-    )
-    nutrition_bits = []
-    for col, label in [
-        ("Calories_per_serving", "cal"),
-        ("ProteinContent_per_serving", "g protein"),
-        ("CarbohydrateContent_per_serving", "g carbs"),
-        ("FatContent_per_serving", "g fat"),
-        ("FiberContent_per_serving", "g fiber"),
-    ]:
-        val = row.get(col)
-        if val is not None and str(val) != "nan":
-            try:
-                nutrition_bits.append(f"{float(val):.0f} {label}")
-            except (TypeError, ValueError):
-                pass
-    if nutrition_bits:
-        instructions += " Per serving: " + ", ".join(nutrition_bits) + "."
+    instructions_raw = row.get("RecipeInstructions")
+    instructions_steps: list = []
+    if instructions_raw is not None:
+        try:
+            instructions_steps = [str(s).strip() for s in list(instructions_raw) if s is not None and str(s).strip()]
+        except TypeError:
+            pass
+    instructions = "\n".join(instructions_steps)
+
+    images_raw = row.get("Images")
+    image_url = ""
+    if images_raw is not None:
+        try:
+            for img in list(images_raw):
+                if img is None:
+                    continue
+                s = str(img).strip()
+                if s and s.lower() != "character(0)":
+                    image_url = s
+                    break
+        except TypeError:
+            pass
+    if not image_url:
+        image_url = f"https://via.placeholder.com/300x200?text={name.replace(' ', '+')[:60]}"
 
     # Structured per-serving nutrition pulled straight from the parquet.
     nutrition: dict = {}
@@ -234,7 +235,7 @@ def _format_foodcom_row(row) -> dict:
     return {
         "id": recipe_id,
         "name": name,
-        "image": f"https://via.placeholder.com/300x200?text={name.replace(' ', '+')[:60]}",
+        "image": image_url,
         "category": category_str,
         "area": "Food.com",
         "instructions": instructions,
@@ -289,12 +290,16 @@ async def _fetch_mealdb_enrichment(client: httpx.AsyncClient, name: str) -> Opti
 
 
 def _overlay_enrichment(recipe: dict, extra: Optional[dict]) -> dict:
-    """Overlay non-empty fields from an enrichment dict onto the recipe."""
+    """Fill empty recipe fields from an enrichment dict. Parquet data wins."""
     if not extra:
         return recipe
     for k, v in extra.items():
-        if v:
-            recipe[k] = v
+        if not v:
+            continue
+        existing = recipe.get(k)
+        if existing and (not isinstance(existing, str) or "placeholder.com" not in existing):
+            continue
+        recipe[k] = v
     return recipe
 
 
