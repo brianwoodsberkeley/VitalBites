@@ -64,9 +64,16 @@ function RecipeDetail() {
     return () => { document.title = 'VitalFoods AI'; };
   }, [recipe]);
 
-  // Fetch YouTube link
+  // YouTube link resolution — prefer a direct video URL, fall back to a
+  // YouTube search query so the button always has a working destination.
   useEffect(() => {
     if (!recipe) return;
+    const name = recipe.name || recipe.strMeal;
+
+    if (name) {
+      setYoutubeUrl(`https://www.youtube.com/results?search_query=${encodeURIComponent(name + ' recipe')}`);
+      setYoutubeTitle('Watch on YouTube');
+    }
 
     const existingYoutube = recipe.strYoutube || recipe.youtube;
     if (existingYoutube) {
@@ -74,14 +81,16 @@ function RecipeDetail() {
       setYoutubeTitle('Watch on YouTube');
     }
 
-    getRecipeYouTube(recipe.name || recipe.strMeal)
-      .then(data => {
-        if (data.youtube_url) {
-          setYoutubeUrl(data.youtube_url);
-          setYoutubeTitle(data.title || 'Watch on YouTube');
-        }
-      })
-      .catch(() => {});
+    if (name) {
+      getRecipeYouTube(name)
+        .then(data => {
+          if (data.youtube_url) {
+            setYoutubeUrl(data.youtube_url);
+            setYoutubeTitle(data.title || 'Watch on YouTube');
+          }
+        })
+        .catch(() => {});
+    }
   }, [recipe]);
 
   useEffect(() => {
